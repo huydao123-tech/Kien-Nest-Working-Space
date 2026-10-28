@@ -13,22 +13,27 @@ import com.cowork.booking.domain.event.BookingEvents.ReleaseReason;
 import com.cowork.shared.domain.AggregateRoot;
 import com.cowork.shared.domain.DomainException;
 import com.cowork.shared.domain.Money;
-import com.cowork.shared.domain.ResourceType;
 import com.cowork.shared.domain.TimeRange;
+import jakarta.persistence.CollectionTable;
 import jakarta.persistence.Column;
+import jakarta.persistence.ElementCollection;
 import jakarta.persistence.Embedded;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
+import jakarta.persistence.FetchType;
 import jakarta.persistence.Id;
-import jakarta.persistence.Index;
+import jakarta.persistence.JoinColumn;
+import jakarta.persistence.OrderColumn;
 import jakarta.persistence.Table;
 import jakarta.persistence.Version;
 
 import java.security.SecureRandom;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.Base64;
 import java.util.EnumSet;
+import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -45,12 +50,15 @@ import static com.cowork.booking.domain.BookingStatus.OVERSTAY;
 import static com.cowork.booking.domain.BookingStatus.REFUND_PENDING;
 
 /**
- * Aggregate root: một đơn đặt một vị trí trong một khung giờ.
+ * Aggregate root: một khách đặt một vị trí trong một khung giờ.
  * Mọi chuyển trạng thái đi qua các phương thức nghiệp vụ dưới đây; không có setter.
  * Kiểm tra trùng chỗ (BR-01) cần dữ liệu ngoài aggregate nên nằm ở {@code BookingService}.
+ *
+ * <p>Các khoản phải thu ({@link BookingCharge}) và lịch sử trạng thái ({@link StatusChange}) thuộc
+ * aggregate này nhưng lưu ở bảng riêng.
  */
 @Entity
-@Table(name = "booking", indexes = @Index(name = "idx_booking_resource_period", columnList = "resource_id, start_at, end_at"))
+@Table(name = "booking")
 public class Booking extends AggregateRoot {
 
     private static final SecureRandom RANDOM = new SecureRandom();
@@ -66,15 +74,11 @@ public class Booking extends AggregateRoot {
     @Column(nullable = false, unique = true, length = 64)
     private String qrToken;
 
+    @Column(name = "customer_id", nullable = false)
+    private UUID customerId;
+
     @Column(name = "resource_id", nullable = false)
     private UUID resourceId;
-
-    @Enumerated(EnumType.STRING)
-    @Column(nullable = false, length = 20)
-    private ResourceType resourceType;
-
-    @Embedded
-    private ContactInfo contact;
 
     @Embedded
     private TimeRange period;
@@ -85,9 +89,6 @@ public class Booking extends AggregateRoot {
     @Column(nullable = false, length = 20)
     private BookingStatus status;
 
-    private long rentalAmount;
-    private long extensionAmount;
-    private long surchargeAmount;
     private long paidAmount;
 
     private LocalDateTime holdExpiresAt;
@@ -101,12 +102,22 @@ public class Booking extends AggregateRoot {
     @Version
     private Long version;
 
+    @ElementCollection(fetch = FetchType.EAGER)
+    @CollectionTable(name = "booking_charge", joinColumns = @JoinColumn(name = "booking_id"))
+    @OrderColumn(name = "line_no")
+    private List<BookingCharge> charges = new ArrayList<>();
+
+    @ElementCollection(fetch = FetchType.EAGER)
+    @CollectionTable(name = "booking_status_history", joinColumns = @JoinColumn(name = "booking_id"))
+    @OrderColumn(name = "line_no")
+    private List<StatusChange> statusHistory = new ArrayList<>();
+
     protected Booking() {
     }
 
     /** UC03 bước 7: tạo đơn ở trạng thái giữ chỗ tạm (soft lock). */
-    public static Booking hold(UUID resourceId, ResourceType resourceType, ContactInfo contact, TimeRange period,
-                               int partySize, Money rental, BookingRules rules, LocalDateTime now) {
+    public static Booking hold(UUID resourceId, UUID customerId, TimeRange period, int partySize, Money rental,
+                               BookingRules rules, LocalDateTime now) {
         if (partySize < 1) {
             throw new DomainException("INVALID_PARTY_SIZE", "Số người phải lớn hơn 0");
         }
@@ -118,14 +129,13 @@ public class Booking extends AggregateRoot {
         booking.code = generateCode();
         booking.qrToken = generateQrToken();
         booking.resourceId = resourceId;
-        booking.resourceType = resourceType;
-        booking.contact = contact;
+        booking.customerId = customerId;
         booking.period = period;
         booking.partySize = partySize;
-        booking.rentalAmount = rental.amount();
-        booking.status = HELD;
         booking.holdExpiresAt = now.plus(rules.holdDuration());
         booking.createdAt = now;
+        booking.charges.add(BookingCharge.of(ChargeType.RENTAL, rental, period, now));
+        booking.transitionTo(HELD, now);
         booking.registerEvent(new BookingHeld(booking.id, resourceId, period, booking.holdExpiresAt, now));
         return booking;
     }
@@ -149,8 +159,8 @@ public class Booking extends AggregateRoot {
     public void markRefundPendingAfterLatePayment(Money paid, LocalDateTime now) {
         requireStatus(EnumSet.of(EXPIRED, FAILED), "chuyển chờ hoàn tiền");
         paidAmount = paid.amount();
-        status = REFUND_PENDING;
-        registerEvent(new BookingRefundRequired(id, paid, "SLOT_TAKEN_AFTER_LATE_PAYMENT", contact, now));
+        transitionTo(REFUND_PENDING, now);
+        registerEvent(new BookingRefundRequired(id, paid, "SLOT_TAKEN_AFTER_LATE_PAYMENT", customerId, now));
     }
 
     public void expireHold(LocalDateTime now) {
@@ -158,24 +168,24 @@ public class Booking extends AggregateRoot {
         if (now.isBefore(holdExpiresAt)) {
             throw new DomainException("HOLD_NOT_EXPIRED", "Đơn vẫn còn trong thời gian giữ chỗ");
         }
-        status = EXPIRED;
-        registerEvent(new BookingReleased(id, ReleaseReason.HOLD_EXPIRED, contact, now));
+        transitionTo(EXPIRED, now);
+        registerEvent(new BookingReleased(id, ReleaseReason.HOLD_EXPIRED, customerId, now));
     }
 
     public void failPayment(LocalDateTime now) {
         requireStatus(EnumSet.of(HELD), "ghi nhận thanh toán thất bại");
-        status = FAILED;
-        registerEvent(new BookingReleased(id, ReleaseReason.PAYMENT_FAILED, contact, now));
+        transitionTo(FAILED, now);
+        registerEvent(new BookingReleased(id, ReleaseReason.PAYMENT_FAILED, customerId, now));
     }
 
     /** UC06: hủy đơn chưa check-in, trả về số tiền được hoàn. */
     public Money cancel(CancellationPolicy policy, LocalDateTime now) {
         requireStatus(EnumSet.of(CONFIRMED), "hủy");
         Money refund = policy.refundFor(paid(), period.startAt(), now);
-        status = CANCELLED;
-        registerEvent(new BookingCancelled(id, refund, contact, now));
+        transitionTo(CANCELLED, now);
+        registerEvent(new BookingCancelled(id, refund, customerId, now));
         if (refund.isPositive()) {
-            registerEvent(new BookingRefundRequired(id, refund, "CUSTOMER_CANCELLED", contact, now));
+            registerEvent(new BookingRefundRequired(id, refund, "CUSTOMER_CANCELLED", customerId, now));
         }
         return refund;
     }
@@ -190,8 +200,8 @@ public class Booking extends AggregateRoot {
         if (!now.isBefore(period.endAt())) {
             throw new DomainException("CHECK_IN_TOO_LATE", "Khung giờ đặt chỗ đã kết thúc");
         }
-        status = CHECKED_IN;
         checkedInAt = now;
+        transitionTo(CHECKED_IN, now);
         registerEvent(new BookingCheckedIn(id, resourceId, now));
     }
 
@@ -206,11 +216,11 @@ public class Booking extends AggregateRoot {
     /** UC08: gia hạn tại chỗ. Tiền gia hạn được cộng vào khoản phải trả khi check-out. */
     public void extendTo(LocalDateTime newEndAt, Money price, LocalDateTime now) {
         requireStatus(EnumSet.of(CHECKED_IN, OVERSTAY), "gia hạn");
-        extensionRange(newEndAt);
+        TimeRange extension = extensionRange(newEndAt);
         period = period.withEnd(newEndAt);
-        extensionAmount += price.amount();
+        charges.add(BookingCharge.of(ChargeType.EXTENSION, price, extension, now));
         if (status == OVERSTAY && newEndAt.isAfter(now)) {
-            status = CHECKED_IN;
+            transitionTo(CHECKED_IN, now);
         }
         registerEvent(new BookingExtended(id, newEndAt, price, now));
     }
@@ -223,7 +233,7 @@ public class Booking extends AggregateRoot {
         if (!isOverdue(rules, now)) {
             throw new DomainException("NOT_OVERDUE", "Đơn chưa quá giờ");
         }
-        status = OVERSTAY;
+        transitionTo(OVERSTAY, now);
         registerEvent(new BookingOverstayed(id, resourceId, now));
     }
 
@@ -235,23 +245,29 @@ public class Booking extends AggregateRoot {
         return Optional.of(new TimeRange(period.endAt(), checkOutAt));
     }
 
-    /** UC09: ghi nhận giờ ra và phụ phí; đơn hoàn tất ngay nếu không còn khoản phải trả. */
-    public void checkOut(Money surcharge, LocalDateTime now) {
+    /** UC09: check-out trong giờ (hoặc trong thời gian ân hạn) — không phát sinh phụ phí. */
+    public void checkOut(LocalDateTime now) {
         requireStatus(EnumSet.of(CHECKED_IN, OVERSTAY), "check-out");
-        checkedOutAt = now;
-        surchargeAmount = surcharge.amount();
-        status = outstanding().isPositive() ? CHECKED_OUT : COMPLETED;
-        registerEvent(new BookingCheckedOut(id, resourceId, outstanding(), now));
+        finishCheckOut(now);
+    }
+
+    /** UC09: check-out quá giờ — ghi thêm khoản phụ phí cho khoảng quá giờ (BR-06). */
+    public void checkOutWithOverstay(TimeRange overstay, Money surcharge, LocalDateTime now) {
+        requireStatus(EnumSet.of(CHECKED_IN, OVERSTAY), "check-out");
+        if (surcharge.isPositive()) {
+            charges.add(BookingCharge.of(ChargeType.OVERSTAY_SURCHARGE, surcharge, overstay, now));
+        }
+        finishCheckOut(now);
     }
 
     /** UC16: thu nốt khoản phát sinh tại quầy. */
-    public void settleOutstanding(Money amount) {
+    public void settleOutstanding(Money amount, LocalDateTime now) {
         requireStatus(EnumSet.of(CHECKED_OUT), "thanh toán khoản phát sinh");
         if (!amount.equals(outstanding())) {
             throw new DomainException("AMOUNT_MISMATCH", "Số tiền cần thu là " + outstanding().amount());
         }
         paidAmount += amount.amount();
-        status = COMPLETED;
+        transitionTo(COMPLETED, now);
     }
 
     public boolean occupiesSlot() {
@@ -259,7 +275,7 @@ public class Booking extends AggregateRoot {
     }
 
     public Money total() {
-        return Money.vnd(rentalAmount + extensionAmount + surchargeAmount);
+        return charges.stream().map(BookingCharge::money).reduce(Money.ZERO, Money::plus);
     }
 
     public Money paid() {
@@ -270,13 +286,24 @@ public class Booking extends AggregateRoot {
         return total().minus(paid());
     }
 
+    private void finishCheckOut(LocalDateTime now) {
+        checkedOutAt = now;
+        transitionTo(outstanding().isPositive() ? CHECKED_OUT : COMPLETED, now);
+        registerEvent(new BookingCheckedOut(id, resourceId, outstanding(), now));
+    }
+
     private void acceptPayment(Money paid, LocalDateTime now) {
         if (!paid.equals(total())) {
             throw new DomainException("AMOUNT_MISMATCH", "Số tiền thanh toán " + paid.amount() + " khác tổng đơn " + total().amount());
         }
         paidAmount = paid.amount();
-        status = CONFIRMED;
-        registerEvent(new BookingConfirmed(id, code, qrToken, contact, period, now));
+        transitionTo(CONFIRMED, now);
+        registerEvent(new BookingConfirmed(id, code, qrToken, customerId, period, now));
+    }
+
+    private void transitionTo(BookingStatus next, LocalDateTime now) {
+        statusHistory.add(new StatusChange(status, next, now));
+        status = next;
     }
 
     private void requireStatus(Set<BookingStatus> allowed, String action) {
@@ -311,16 +338,12 @@ public class Booking extends AggregateRoot {
         return qrToken;
     }
 
+    public UUID customerId() {
+        return customerId;
+    }
+
     public UUID resourceId() {
         return resourceId;
-    }
-
-    public ResourceType resourceType() {
-        return resourceType;
-    }
-
-    public ContactInfo contact() {
-        return contact;
     }
 
     public TimeRange period() {
@@ -345,5 +368,13 @@ public class Booking extends AggregateRoot {
 
     public LocalDateTime checkedOutAt() {
         return checkedOutAt;
+    }
+
+    public List<BookingCharge> charges() {
+        return List.copyOf(charges);
+    }
+
+    public List<StatusChange> statusHistory() {
+        return List.copyOf(statusHistory);
     }
 }

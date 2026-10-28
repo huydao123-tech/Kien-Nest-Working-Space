@@ -5,6 +5,8 @@ import com.cowork.booking.domain.BookingRepository;
 import com.cowork.booking.domain.BookingRules;
 import com.cowork.booking.domain.BookingStatus;
 import com.cowork.booking.domain.CancellationPolicy;
+import com.cowork.customer.application.CustomerService;
+import com.cowork.customer.domain.Customer;
 import com.cowork.pricing.application.PricingService;
 import com.cowork.shared.application.DomainEventPublisher;
 import com.cowork.shared.domain.ConflictException;
@@ -21,6 +23,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.Clock;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 /**
@@ -39,16 +42,19 @@ public class BookingService {
     private final BookingRepository bookings;
     private final ResourceRepository resources;
     private final PricingService pricing;
+    private final CustomerService customers;
     private final DomainEventPublisher events;
     private final Clock clock;
     private final BookingRules rules;
     private final CancellationPolicy cancellationPolicy = new CancellationPolicy();
 
     public BookingService(BookingRepository bookings, ResourceRepository resources, PricingService pricing,
-                          DomainEventPublisher events, Clock clock, BookingProperties properties) {
+                          CustomerService customers, DomainEventPublisher events, Clock clock,
+                          BookingProperties properties) {
         this.bookings = bookings;
         this.resources = resources;
         this.pricing = pricing;
+        this.customers = customers;
         this.events = events;
         this.clock = clock;
         this.rules = properties.toRules();
@@ -63,8 +69,8 @@ public class BookingService {
             throw new ConflictException("SLOT_UNAVAILABLE", "Vị trí " + resource.code() + " đã có người đặt trong khung giờ này");
         }
         Money rental = pricing.quote(resource.type(), period).total();
-        Booking booking = Booking.hold(resource.id(), resource.type(), command.contact(), period,
-                command.partySize(), rental, rules, now());
+        Customer customer = customers.registerOrUpdate(command.contact());
+        Booking booking = Booking.hold(resource.id(), customer.id(), period, command.partySize(), rental, rules, now());
         return saveAndPublish(booking);
     }
 
@@ -118,12 +124,12 @@ public class BookingService {
     public Booking extend(UUID bookingId, LocalDateTime newEndAt) {
         Booking booking = load(bookingId);
         TimeRange extension = booking.extensionRange(newEndAt);
-        lockResource(booking.resourceId());
+        Resource resource = lockResource(booking.resourceId());
         if (bookings.existsOccupying(booking.resourceId(), extension, booking.id())) {
             throw new ConflictException("EXTENSION_UNAVAILABLE",
                     "Vị trí đã có khách đặt tiếp, không thể gia hạn tới " + newEndAt);
         }
-        Money price = pricing.quote(booking.resourceType(), extension).total();
+        Money price = pricing.quote(resource.type(), extension).total();
         booking.extendTo(newEndAt, price, now());
         return saveAndPublish(booking);
     }
@@ -132,17 +138,22 @@ public class BookingService {
     public Booking checkOut(String qrToken) {
         Booking booking = loadByQr(qrToken);
         LocalDateTime now = now();
-        Money surcharge = booking.overstayPeriod(rules, now)
-                .map(overstay -> pricing.overstaySurcharge(booking.resourceType(), overstay))
-                .orElse(Money.ZERO);
-        booking.checkOut(surcharge, now);
+        Optional<TimeRange> overstay = booking.overstayPeriod(rules, now);
+        if (overstay.isPresent()) {
+            Resource resource = resources.findById(booking.resourceId())
+                    .orElseThrow(() -> new NotFoundException("Vị trí", booking.resourceId()));
+            Money surcharge = pricing.overstaySurcharge(resource.type(), overstay.get());
+            booking.checkOutWithOverstay(overstay.get(), surcharge, now);
+        } else {
+            booking.checkOut(now);
+        }
         return saveAndPublish(booking);
     }
 
     /** UC16. */
     public Booking settleOutstanding(UUID bookingId, Money amount) {
         Booking booking = load(bookingId);
-        booking.settleOutstanding(amount);
+        booking.settleOutstanding(amount, now());
         return saveAndPublish(booking);
     }
 

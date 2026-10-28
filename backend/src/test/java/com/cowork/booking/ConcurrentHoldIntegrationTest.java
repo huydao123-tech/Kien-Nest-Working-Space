@@ -2,7 +2,7 @@ package com.cowork.booking;
 
 import com.cowork.booking.application.BookingService;
 import com.cowork.booking.application.HoldBookingCommand;
-import com.cowork.booking.domain.ContactInfo;
+import com.cowork.customer.domain.ContactInfo;
 import com.cowork.shared.domain.ConflictException;
 import com.cowork.support.IntegrationTest;
 import org.junit.jupiter.api.Test;

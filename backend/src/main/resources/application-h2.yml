@@ -7,11 +7,8 @@ spring:
     password:
   jpa:
     hibernate:
-      # Migration Flyway viết cho PostgreSQL (exclusion constraint, partial index) nên không chạy trên H2;
-      # ở profile này Hibernate tự tạo bảng từ entity.
+      # Riêng profile này Hibernate tự tạo bảng từ entity (bảng tạm, mất khi tắt ứng dụng).
       ddl-auto: create-drop
-  flyway:
-    enabled: false
   h2:
     console:
       enabled: true

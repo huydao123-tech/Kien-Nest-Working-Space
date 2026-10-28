@@ -6,17 +6,9 @@ Backend cho hệ thống đặt chỗ Co-Working Space theo giờ. Đặc tả: 
 
 ## Chạy
 
-Yêu cầu: JDK 21, Maven 3.9+, PostgreSQL 16+ (hoặc Docker).
+Yêu cầu: JDK 21, Maven 3.9+, PostgreSQL 16+ với pgAdmin 4.
 
-Chuẩn bị database một lần — chọn một trong hai:
-
-```powershell
-& "C:\Program Files\PostgreSQL\18\bin\psql.exe" -h localhost -U postgres -f db/setup-local.sql
-```
-
-```bash
-docker compose up -d
-```
+Trước khi chạy: tạo database `working-space` trong pgAdmin, rồi chạy [db/schema.sql](db/schema.sql) trong Query Tool bằng tài khoản `postgres` — file tạo 35 bảng, user `cowork` và cấp quyền. Hướng dẫn: [README gốc mục 4.2](../README.md#42-tạo-database-và-bảng-trong-pgadmin-4). Thiết kế: [docs/database.md](../docs/database.md).
 
 ```bash
 mvn spring-boot:run
@@ -26,9 +18,9 @@ mvn spring-boot:run
 mvn test
 ```
 
-- Kết nối mặc định: `jdbc:postgresql://localhost:5432/cowork`, user/mật khẩu `cowork`. Ghi đè bằng `DB_URL`, `DB_USERNAME`, `DB_PASSWORD`.
-- Schema do **Flyway** quản lý (`src/main/resources/db/migration`); Hibernate chạy `ddl-auto: validate`. Thiết kế: [docs/database.md](../docs/database.md).
-- Dữ liệu mẫu (15 vị trí, bảng giá cao điểm 09:00–18:00 ngày thường) được nạp khi bảng trống.
+- Kết nối mặc định: `jdbc:postgresql://localhost:5432/working-space`, user/mật khẩu `cowork`. Ghi đè bằng `DB_URL`, `DB_USERNAME`, `DB_PASSWORD`.
+- Ứng dụng không tạo hay sửa bảng: Hibernate chạy `ddl-auto: validate`, entity lệch với bảng thì dừng ngay khi khởi động.
+- Dữ liệu mẫu (14 vị trí, bảng giá cao điểm 09:00–18:00 ngày thường) được nạp khi bảng trống.
 - Profile `h2` (`-Dspring-boot.run.profiles=h2`): chạy không cần PostgreSQL, Hibernate tự tạo bảng, có `/h2-console`. Integration test dùng profile này.
 
 ## Kiến trúc
@@ -40,7 +32,8 @@ com.cowork
 ├── shared         Shared kernel: Money, TimeRange, ResourceType, AggregateRoot, DomainEvent, xử lý lỗi API
 ├── space          Vị trí cho thuê và trạng thái khai thác (Resource aggregate)
 ├── pricing        Bảng giá & tính tiền theo block giờ (PriceRule, PricingPolicy)
-├── booking        Lõi nghiệp vụ: vòng đời đơn đặt chỗ (Booking aggregate)
+├── customer       Khách hàng, định danh bằng số điện thoại (Customer aggregate)
+├── booking        Lõi nghiệp vụ: vòng đời đơn đặt chỗ (Booking aggregate, kèm các khoản tiền và lịch sử trạng thái)
 ├── payment        Giao dịch thanh toán, webhook có ký, cổng sandbox (Payment aggregate)
 ├── notification   Gửi thông báo khi đơn đổi trạng thái
 └── bootstrap      Dữ liệu mẫu

@@ -1,20 +1,18 @@
 spring:
   application:
     name: cowork-booking
-  # PostgreSQL. Ghi đè bằng biến môi trường DB_URL / DB_USERNAME / DB_PASSWORD khi triển khai.
-  # Giá trị mặc định khớp với db/setup-local.sql và docker-compose.yml (chỉ dùng cho máy dev).
+  # Kết nối PostgreSQL. Database tạo trong pgAdmin; user cowork do db/schema.sql tạo.
+  # Đổi tên database / user thì sửa 3 dòng dưới, hoặc ghi đè bằng biến môi trường DB_URL, DB_USERNAME, DB_PASSWORD.
   datasource:
-    url: ${DB_URL:jdbc:postgresql://localhost:5432/cowork}
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/working-space}
     username: ${DB_USERNAME:cowork}
     password: ${DB_PASSWORD:cowork}
   jpa:
     open-in-view: false
     hibernate:
-      # Bảng do Flyway tạo (src/main/resources/db/migration). Hibernate chỉ kiểm tra entity khớp với bảng.
+      # Bảng do bạn tạo bằng cách chạy db/schema.sql trong pgAdmin. Ứng dụng KHÔNG tự tạo hay sửa bảng;
+      # khi khởi động chỉ kiểm tra entity Java có khớp với bảng không, lệch thì báo lỗi và dừng.
       ddl-auto: validate
-  flyway:
-    enabled: true
-    locations: classpath:db/migration
 
 app:
   time-zone: Asia/Ho_Chi_Minh

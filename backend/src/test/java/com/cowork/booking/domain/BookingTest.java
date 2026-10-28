@@ -5,7 +5,6 @@ import com.cowork.booking.domain.event.BookingEvents.BookingHeld;
 import com.cowork.booking.domain.event.BookingEvents.BookingRefundRequired;
 import com.cowork.shared.domain.DomainException;
 import com.cowork.shared.domain.Money;
-import com.cowork.shared.domain.ResourceType;
 import com.cowork.shared.domain.TimeRange;
 import org.junit.jupiter.api.Test;
 
@@ -20,7 +19,7 @@ class BookingTest {
 
     private static final BookingRules RULES = new BookingRules(Duration.ofMinutes(10), Duration.ofMinutes(15), Duration.ofMinutes(5));
     private static final LocalDateTime NOW = LocalDateTime.of(2026, 11, 2, 8, 0);
-    private static final ContactInfo CONTACT = new ContactInfo("Nguyễn Văn A", "0912345678", "a@example.com");
+    private static final UUID CUSTOMER_ID = UUID.randomUUID();
     private static final Money RENTAL = Money.vnd(100_000);
 
     @Test
@@ -35,8 +34,20 @@ class BookingTest {
     }
 
     @Test
+    void holdRecordsRentalChargeAndInitialStatus() {
+        Booking booking = holdAt(9, 11);
+
+        assertThat(booking.charges()).singleElement().satisfies(charge -> {
+            assertThat(charge.type()).isEqualTo(ChargeType.RENTAL);
+            assertThat(charge.money()).isEqualTo(RENTAL);
+            assertThat(charge.startAt()).isEqualTo(NOW.withHour(9));
+        });
+        assertThat(booking.statusHistory()).containsExactly(new StatusChange(null, BookingStatus.HELD, NOW));
+    }
+
+    @Test
     void cannotHoldSlotInThePast() {
-        assertThatThrownBy(() -> Booking.hold(UUID.randomUUID(), ResourceType.HOT_DESK, CONTACT,
+        assertThatThrownBy(() -> Booking.hold(UUID.randomUUID(), CUSTOMER_ID,
                 new TimeRange(NOW.minusHours(2), NOW.minusHours(1)), 1, RENTAL, RULES, NOW))
                 .hasFieldOrPropertyWithValue("code", "START_IN_PAST");
     }
@@ -103,12 +114,15 @@ class BookingTest {
     void checkOutWithSurchargeWaitsForSettlement() {
         Booking booking = confirmedAt(9, 11);
         booking.checkIn(RULES, NOW.withHour(9));
+        TimeRange overstay = new TimeRange(NOW.withHour(11), NOW.withHour(11).withMinute(20));
 
-        booking.checkOut(Money.vnd(25_000), NOW.withHour(11).withMinute(20));
+        booking.checkOutWithOverstay(overstay, Money.vnd(25_000), NOW.withHour(11).withMinute(20));
         assertThat(booking.status()).isEqualTo(BookingStatus.CHECKED_OUT);
         assertThat(booking.outstanding()).isEqualTo(Money.vnd(25_000));
+        assertThat(booking.charges()).extracting(BookingCharge::type)
+                .containsExactly(ChargeType.RENTAL, ChargeType.OVERSTAY_SURCHARGE);
 
-        booking.settleOutstanding(Money.vnd(25_000));
+        booking.settleOutstanding(Money.vnd(25_000), NOW.withHour(11).withMinute(25));
         assertThat(booking.status()).isEqualTo(BookingStatus.COMPLETED);
         assertThat(booking.outstanding()).isEqualTo(Money.ZERO);
     }
@@ -118,9 +132,11 @@ class BookingTest {
         Booking booking = confirmedAt(9, 11);
         booking.checkIn(RULES, NOW.withHour(9));
 
-        booking.checkOut(Money.ZERO, NOW.withHour(10).withMinute(55));
+        booking.checkOut(NOW.withHour(10).withMinute(55));
 
         assertThat(booking.status()).isEqualTo(BookingStatus.COMPLETED);
+        assertThat(booking.statusHistory()).extracting(StatusChange::toStatus).containsExactly(
+                BookingStatus.HELD, BookingStatus.CONFIRMED, BookingStatus.CHECKED_IN, BookingStatus.COMPLETED);
     }
 
     @Test
@@ -134,6 +150,11 @@ class BookingTest {
         assertThat(booking.status()).isEqualTo(BookingStatus.CHECKED_IN);
         assertThat(booking.period().endAt()).isEqualTo(NOW.withHour(12));
         assertThat(booking.outstanding()).isEqualTo(Money.vnd(50_000));
+        assertThat(booking.charges()).last().satisfies(charge -> {
+            assertThat(charge.type()).isEqualTo(ChargeType.EXTENSION);
+            assertThat(charge.startAt()).isEqualTo(NOW.withHour(11));
+            assertThat(charge.endAt()).isEqualTo(NOW.withHour(12));
+        });
     }
 
     @Test
@@ -160,7 +181,7 @@ class BookingTest {
     }
 
     private static Booking holdOn(LocalDateTime day, int startHour, int endHour) {
-        return Booking.hold(UUID.randomUUID(), ResourceType.HOT_DESK, CONTACT,
+        return Booking.hold(UUID.randomUUID(), CUSTOMER_ID,
                 new TimeRange(day.withHour(startHour), day.withHour(endHour)), 1, RENTAL, RULES, NOW);
     }
 

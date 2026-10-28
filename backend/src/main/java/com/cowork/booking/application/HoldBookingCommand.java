@@ -1,6 +1,6 @@
 package com.cowork.booking.application;
 
-import com.cowork.booking.domain.ContactInfo;
+import com.cowork.customer.domain.ContactInfo;
 
 import java.time.LocalDateTime;
 import java.util.UUID;

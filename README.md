@@ -45,13 +45,11 @@ kien nest/
 └── backend/                     ← toàn bộ mã nguồn Java
     ├── pom.xml                  ← khai báo thư viện, phiên bản Java (giống package.json bên Node)
     ├── README.md                ← tài liệu kỹ thuật ngắn gọn cho dev đã quen
-    ├── db/setup-local.sql       ← script tạo database + user trên máy dev (chạy 1 lần)
-    ├── docker-compose.yml       ← chạy PostgreSQL bằng Docker (nếu không muốn cài PostgreSQL)
+    ├── db/schema.sql            ← câu lệnh tạo bảng để THAM KHẢO khi bạn tự tạo bảng trong pgAdmin
     └── src/
         ├── main/java/com/cowork/   ← code chính
         ├── main/resources/application.yml      ← cấu hình chính (kết nối PostgreSQL, thời gian giữ chỗ, giá...)
         ├── main/resources/application-h2.yml   ← cấu hình chạy không cần PostgreSQL (dùng cho test)
-        ├── main/resources/db/migration/        ← các file SQL tạo bảng (Flyway tự chạy)
         └── test/java/com/cowork/   ← code kiểm thử
 ```
 
@@ -67,10 +65,8 @@ Cần 4 thứ:
 | :--- | :--- | :--- |
 | **JDK 21** | Chạy và biên dịch Java | https://adoptium.net (chọn Temurin 21, bản Windows `.msi`) |
 | **Maven 3.9+** | Tải thư viện, build, chạy test | https://maven.apache.org/download.cgi |
-| **PostgreSQL 16+** | Database lưu dữ liệu | https://www.postgresql.org/download/windows (bộ cài có kèm pgAdmin). **Ghi nhớ mật khẩu tài khoản `postgres`** bạn đặt lúc cài |
+| **PostgreSQL 16+** và **pgAdmin 4** | Database lưu dữ liệu, và công cụ quản lý nó | https://www.postgresql.org/download/windows (bộ cài có kèm pgAdmin 4). **Ghi nhớ mật khẩu tài khoản `postgres`** bạn đặt lúc cài |
 | **IntelliJ IDEA Community** (khuyên dùng) | Viết code | https://www.jetbrains.com/idea/download |
-
-> Đã cài Docker thì có thể bỏ qua PostgreSQL: trong thư mục `backend` chạy `docker compose up -d` là có database sẵn.
 
 Kiểm tra đã cài đúng chưa — mở PowerShell hoặc Terminal, gõ từng lệnh:
 
@@ -84,13 +80,7 @@ mvn -v
 
 Phải thấy `21.x` ở cả hai. Nếu báo *"không nhận ra lệnh"* → xem [mục 11](#11-lỗi-thường-gặp).
 
-**Tạo database cho dự án (làm một lần).** Mở PowerShell, chạy lệnh dưới (đổi `18` thành phiên bản PostgreSQL của bạn), rồi nhập mật khẩu tài khoản `postgres` khi được hỏi:
-
-```powershell
-& "C:\Program Files\PostgreSQL\18\bin\psql.exe" -h localhost -U postgres -f "D:\kien nest\backend\db\setup-local.sql"
-```
-
-Lệnh này tạo database `cowork` và user `cowork` (mật khẩu `cowork`, chỉ dùng cho máy dev). Bạn **không cần tự tạo bảng** — khi ứng dụng khởi động, **Flyway** tự chạy các file SQL trong `src/main/resources/db/migration` để tạo bảng.
+Database và các bảng **bạn tự tạo bằng pgAdmin 4** — làm theo [mục 4.2](#42-tạo-database-và-bảng-trong-pgadmin-4). Ứng dụng không tự tạo bảng.
 
 **Mở dự án trong IntelliJ:** `File → Open` → chọn thư mục `backend` (chọn đúng thư mục có file `pom.xml`). Đợi góc dưới bên phải tải xong thư viện (lần đầu mất vài phút).
 
@@ -112,7 +102,60 @@ Kết quả đúng là dòng cuối có `Tests run: 23, Failures: 0, Errors: 0` 
 >
 > Test tự động chạy trên **H2** (database tạm trong RAM), nên chạy test **không cần** PostgreSQL.
 
-### 4.2. Chạy ứng dụng
+### 4.2. Tạo database và bảng trong pgAdmin 4
+
+Ứng dụng **không tự tạo bảng**. Bạn tạo database trong pgAdmin 4, rồi chạy file [backend/db/schema.sql](backend/db/schema.sql) để có đủ bảng. Database có **35 bảng** (danh sách ở [docs/database.md mục 2](docs/database.md#2-danh-sách-bảng)):
+- **10 bảng Phần 1** — code đang dùng.
+- **25 bảng Phần 2** — cho các chức năng làm sau.
+
+**Bước A — Đăng nhập server.** Mở pgAdmin 4 → cây bên trái mở *Servers → PostgreSQL 18* → nhập mật khẩu tài khoản `postgres`.
+
+**Bước B — Tạo database.** Chuột phải *Databases* → *Create → Database…* → Database: `working-space` → *Save*. (Đặt tên khác cũng được, nhớ sửa ở mục 4.3.)
+
+**Bước C — Chạy file SQL.**
+1. Bấm chọn *Databases → working-space* ở cây bên trái → menu *Tools → Query Tool*.
+2. Kiểm tra tiêu đề tab Query Tool ghi `working-space/postgres@PostgreSQL 18`. Nếu ghi `postgres/...` là đang ở nhầm database.
+3. Mở `backend/db/schema.sql` bằng Notepad / IntelliJ → *Ctrl + A* → *Ctrl + C* → dán vào Query Tool → bấm *Execute* (F5).
+4. Tab *Messages* báo `Query returned successfully` là xong.
+
+File này làm 3 việc:
+- Tạo 35 bảng và thêm sẵn 5 dòng vào bảng danh mục `resource_type`.
+- Tạo user **`cowork`** (mật khẩu `cowork`) — tài khoản riêng mà ứng dụng dùng để kết nối, không dùng tài khoản quản trị `postgres`.
+- Cấp cho `cowork` quyền đọc/ghi dữ liệu trên mọi bảng, nhưng không cho xóa bảng hay sửa cấu trúc bảng.
+
+Cả file chạy như một khối: có lỗi thì không bảng nào được tạo, sửa xong chạy lại. Chạy lại nhiều lần cũng không sao — bảng đã có thì bỏ qua.
+
+**Bước D — Kiểm tra.** Chuột phải *working-space → Schemas → public → Tables* → *Refresh*: phải thấy 35 bảng. Chuột phải *Login/Group Roles* → *Refresh*: phải thấy `cowork`.
+
+> **Muốn tự tạo từng bảng bằng giao diện?** Chuột phải *Tables* → *Create → Table…*, nhập theo đúng tên cột / kiểu trong [docs/database.md mục 4](docs/database.md#4-chi-tiết-phần-1-), tạo theo đúng thứ tự đánh số trong `schema.sql` (bảng sau có khóa ngoại trỏ tới bảng trước). Riêng ràng buộc `EXCLUDE` nên tạo bằng SQL vì giao diện khó nhập. Xong thì vẫn chạy **Phần 3** ở cuối `schema.sql` để tạo user `cowork` và cấp quyền.
+
+**Những điều bắt buộc phải khớp với code Java**, nếu không ứng dụng sẽ báo lỗi khi khởi động:
+- Tên bảng và tên cột viết thường, nối bằng gạch dưới: `start_at`, `paid_amount`... (code Java viết `startAt`, `paidAmount` — Spring tự đổi).
+- Kiểu dữ liệu: id dùng `uuid`; tiền dùng `bigint`; thời gian dùng `timestamp` (không kèm múi giờ); trạng thái/loại dùng `varchar`; `version` dùng `bigint`.
+- Đủ tất cả các cột như trong docs/database.md, kể cả `version`.
+
+### 4.3. Kết nối project với database
+
+Mở `backend/src/main/resources/application.yml`, phần kết nối:
+
+```yaml
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/working-space}
+    username: ${DB_USERNAME:cowork}
+    password: ${DB_PASSWORD:cowork}
+```
+
+Đọc như sau: `${DB_URL:giá-trị-mặc-định}` nghĩa là dùng biến môi trường `DB_URL` nếu có, không thì dùng giá trị sau dấu `:`.
+- Database tên `working-space` và đã chạy `schema.sql` (tạo user `cowork` / mật khẩu `cowork`) → **không cần sửa gì**.
+- Nếu đặt tên khác → sửa phần sau dấu `:`. Ví dụ database tên `cowork_dev`:
+  ```yaml
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/cowork_dev}
+  ```
+- Cấu trúc URL: `jdbc:postgresql://<máy>:<cổng>/<tên database>`. Cổng mặc định của PostgreSQL là `5432` (xem trong pgAdmin: chuột phải *PostgreSQL 18 → Properties → Connection*).
+
+Trong code có dòng `ddl-auto: validate`: khi khởi động, ứng dụng **chỉ kiểm tra** bảng bạn tạo có khớp với code không — không tạo, không sửa bảng.
+
+### 4.4. Chạy ứng dụng
 
 ```bash
 mvn spring-boot:run
@@ -120,37 +163,50 @@ mvn spring-boot:run
 
 Đợi đến khi thấy dòng `Started CoworkBookingApplication`. Ứng dụng đang chạy ở **http://localhost:8080**. Muốn dừng: bấm `Ctrl + C`.
 
-Lần chạy đầu, log sẽ có dòng `Migrating schema "public" to version "1 - core schema"` — đó là Flyway đang tạo bảng. Những lần sau Flyway thấy bảng đã có thì bỏ qua.
+- Thấy `Started ...` → **kết nối thành công và các bảng đã khớp**.
+- Ứng dụng dừng với lỗi → tra bảng ở [mục 11](#11-lỗi-thường-gặp). Lỗi hay gặp nhất là `Schema-validation: missing column [...] in table [...]`: đọc tên cột và tên bảng trong ngoặc vuông, thêm cột đó trong pgAdmin.
+
+Lần chạy đầu, khi bảng `space_resource` còn trống, ứng dụng nạp **dữ liệu mẫu** (14 chỗ ngồi và bảng giá) để có cái mà thử API. Không muốn vậy thì sửa `app.seed-demo-data: false` trong `application.yml`, rồi tự thêm dữ liệu bằng pgAdmin.
 
 Trong IntelliJ: mở file `CoworkBookingApplication.java` → bấm nút ▶ xanh cạnh hàm `main`.
 
-**Chưa cài được PostgreSQL?** Chạy tạm bằng H2 (dữ liệu mất khi tắt ứng dụng):
+**Chưa tạo xong database?** Chạy tạm bằng H2 (bảng tự tạo trong RAM, mất khi tắt ứng dụng):
 
 ```bash
 mvn spring-boot:run -Dspring-boot.run.profiles=h2
 ```
 
-### 4.3. Xem dữ liệu trong database
+### 4.5. Xem dữ liệu trong pgAdmin
 
-Mở **pgAdmin** (cài kèm PostgreSQL) → chuột phải *Servers* → *Register → Server*:
-- Tab *General*: Name `cowork`
-- Tab *Connection*: Host `localhost`, Port `5432`, Database `cowork`, Username `cowork`, Password `cowork`
-
-Sau đó mở *cowork → Databases → cowork → Schemas → public → Tables*. Chuột phải một bảng → *View/Edit Data → All Rows*. Hoặc dùng *Query Tool* để gõ SQL, ví dụ `SELECT * FROM booking ORDER BY created_at DESC;`.
-
-(IntelliJ bản Ultimate hoặc DBeaver cũng kết nối được với thông số như trên.)
-
-Các bảng hiện có (thiết kế chi tiết: [docs/database.md](docs/database.md)):
+Mở *working-space → Schemas → public → Tables*, chuột phải một bảng → *View/Edit Data → All Rows*. Hoặc dùng *Query Tool* để gõ SQL, ví dụ `SELECT * FROM booking ORDER BY created_at DESC;`.
 
 | Bảng | Chứa gì |
 | :--- | :--- |
-| `space_resource` | Chỗ ngồi / phòng (15 chỗ mẫu: `HD-01`…`HD-06`, `FD-01`…, `FB-01`, `MR-01`, `MR-02`, `EV-01`) |
+| `resource_type` | 5 loại chỗ (có sẵn sau khi chạy `schema.sql`) |
+| `space_resource` | Chỗ ngồi / phòng (14 chỗ mẫu: `HD-01`…`HD-06`, `FD-01`…`FD-03`, `FB-01`, `FB-02`, `MR-01`, `MR-02`, `EV-01`) |
 | `price_rule` | Bảng giá (cao điểm 09:00–18:00 ngày thường, còn lại thấp điểm) |
+| `customer` | Khách hàng — tự tạo ở lần đặt chỗ đầu tiên của mỗi số điện thoại |
 | `booking` | Đơn đặt chỗ |
+| `booking_charge` | Các khoản tiền của từng đơn: thuê, gia hạn, phụ phí quá giờ |
+| `booking_status_history` | Đơn đã đi qua những trạng thái nào, lúc nào |
 | `payment` | Giao dịch thanh toán |
-| `flyway_schema_history` | Flyway tự tạo để ghi các file SQL đã chạy — **không sửa tay** |
+| `branch`, `zone` | Chưa có dữ liệu (code chưa dùng) |
 
-Dữ liệu mẫu được nạp **một lần** khi bảng `space_resource` còn trống. Muốn làm sạch database để chạy lại từ đầu: trong pgAdmin chạy `DROP SCHEMA public CASCADE; CREATE SCHEMA public;` (bằng user `cowork`), rồi khởi động lại ứng dụng.
+Một câu SQL hay dùng — xem một đơn kèm khách và các khoản tiền:
+
+```sql
+SELECT b.code, c.full_name, c.phone, b.status, ch.charge_type, ch.amount, ch.start_at, ch.end_at
+FROM booking b
+JOIN customer c ON c.id = b.customer_id
+JOIN booking_charge ch ON ch.booking_id = b.id
+ORDER BY b.created_at DESC, ch.line_no;
+```
+
+Xóa hết dữ liệu nhưng giữ bảng (lần chạy sau ứng dụng nạp lại dữ liệu mẫu; `resource_type` giữ nguyên):
+
+```sql
+TRUNCATE payment, booking_status_history, booking_charge, booking, customer, price_rule, space_resource;
+```
 
 ## 5. Thử gọi API
 
@@ -233,6 +289,7 @@ DDD (Domain-Driven Design) là cách tổ chức code **theo nghiệp vụ** tha
    | :--- | :--- |
    | `space` | Chỗ ngồi, phòng: sức chứa, đang bảo trì hay không |
    | `pricing` | Bảng giá, cách tính tiền |
+   | `customer` | Khách hàng (định danh bằng số điện thoại) |
    | `booking` | **Trái tim hệ thống:** đơn đặt chỗ và vòng đời của nó |
    | `payment` | Thanh toán qua cổng |
    | `notification` | Gửi tin nhắn cho khách |
@@ -255,7 +312,7 @@ DDD (Domain-Driven Design) là cách tổ chức code **theo nghiệp vụ** tha
 
 | Khái niệm | Trong dự án | Giải thích |
 | :--- | :--- | :--- |
-| **Aggregate** | `Booking`, `Resource`, `Payment` | Đối tượng nghiệp vụ chính, có id, tự giữ quy tắc của mình |
+| **Aggregate** | `Booking`, `Resource`, `Payment`, `Customer` | Đối tượng nghiệp vụ chính, có id, tự giữ quy tắc của mình |
 | **Value Object** | `Money`, `TimeRange`, `ContactInfo` | Giá trị không có id, không đổi được; tự kiểm tra hợp lệ khi tạo (ví dụ `Money` không được âm) |
 | **Domain Service** | `PricingPolicy`, `CancellationPolicy` | Quy tắc nghiệp vụ không thuộc riêng aggregate nào |
 | **Repository** | `BookingRepository` (interface ở `domain`) + `JpaBookingRepository` (cài đặt ở `infrastructure`) | Nơi lưu/đọc aggregate. Domain chỉ biết interface, không biết SQL |
@@ -376,13 +433,17 @@ Ví dụ này không cần sửa database vì trạng thái `NO_SHOW` đã có t
 
 ### Khi chức năng cần thêm bảng hoặc cột
 
-Ví dụ làm voucher (UC05) cần bảng `voucher`. Thiết kế sẵn ở [docs/database.md mục 4](docs/database.md#4-các-bảng-giai-đoạn-sau-).
+Ví dụ làm voucher (UC05) cần các bảng `voucher`, `voucher_resource_type`, `voucher_redemption`. Ba bảng này đã thiết kế sẵn ở Phần 2 của `db/schema.sql` ([docs/database.md mục 5](docs/database.md#5-phần-2--tóm-tắt-)).
 
-1. Tạo file `backend/src/main/resources/db/migration/V2__voucher.sql` (số phiên bản tăng dần, **hai** dấu gạch dưới), viết `CREATE TABLE voucher (...)`.
-2. Tạo entity Java khớp tên bảng và tên cột (Spring tự đổi `camelCase` trong Java thành `snake_case` trong DB: `discountValue` ↔ `discount_value`).
-3. Chạy ứng dụng. Nếu entity và bảng không khớp, ứng dụng sẽ dừng ngay với lỗi `Schema-validation: missing column ...` — đọc lỗi, sửa cho khớp.
-4. **Không sửa** `V1__core_schema.sql` hay bất kỳ file migration nào đã chạy. Muốn đổi bảng cũ thì viết file mới với `ALTER TABLE`.
-5. Thêm giá trị mới vào một enum Java (ví dụ trạng thái mới)? Phải viết migration sửa ràng buộc `CHECK` tương ứng, nếu không database sẽ từ chối lưu.
+1. Các bảng này đã có sẵn nếu bạn chạy cả `schema.sql`. Nếu cần thêm bảng mới hoặc thêm cột vào bảng cũ (`ALTER TABLE ... ADD COLUMN ...`), chạy trong Query Tool bằng tài khoản `postgres`; user `cowork` tự được cấp quyền trên bảng mới.
+2. Chép câu SQL vừa chạy vào cuối `backend/db/schema.sql`, kèm một dòng chú thích ngày và lý do. Người khác (hoặc chính bạn trên máy khác) chạy lại file này là có database giống hệt.
+3. Tạo entity Java khớp tên bảng và tên cột (Spring tự đổi `camelCase` trong Java thành `snake_case` trong DB: `discountValue` ↔ `discount_value`).
+4. Chạy ứng dụng. Nếu entity và bảng không khớp, ứng dụng sẽ dừng ngay với lỗi `Schema-validation: missing column ...` — đọc lỗi, sửa cho khớp.
+5. Thêm giá trị mới vào một enum Java (ví dụ trạng thái mới)? Phải sửa ràng buộc `CHECK` tương ứng trong pgAdmin, nếu không database sẽ từ chối lưu:
+   ```sql
+   ALTER TABLE booking DROP CONSTRAINT ck_booking_status;
+   ALTER TABLE booking ADD CONSTRAINT ck_booking_status CHECK (status IN ('HELD', ..., 'TRANG_THAI_MOI'));
+   ```
 
 > Không chắc đặt code ở đâu? Tự hỏi: *"Đây là quy tắc nghiệp vụ hay là thao tác kỹ thuật?"* — Quy tắc → `domain`. Gọi nhiều thứ theo thứ tự → `application`. SQL / gọi hệ thống ngoài → `infrastructure`. HTTP → `interfaces`.
 
@@ -402,7 +463,8 @@ Ví dụ làm voucher (UC05) cần bảng `voucher`. Thiết kế sẵn ở [doc
 Xếp theo thứ tự nên làm. Đánh dấu `[x]` khi xong.
 
 **Ưu tiên cao — cần trước khi có người dùng thật**
-- [x] Chuyển sang PostgreSQL + Flyway, có exclusion constraint chống trùng chỗ.
+- [x] Chuyển sang PostgreSQL, có exclusion constraint chống trùng chỗ (bảng tạo tay trong pgAdmin).
+- [ ] Cân nhắc dùng công cụ migration (Flyway/Liquibase) khi có nhiều người cùng làm hoặc có server production, để mọi máy luôn có cùng cấu trúc bảng.
 - [ ] **Integration test chạy trên PostgreSQL thật** (Testcontainers, cần Docker) — hiện test chạy trên H2 nên chưa kiểm tra tự động các ràng buộc riêng của PostgreSQL.
 - [ ] **Đăng nhập & phân quyền** (UC01, UC23): Spring Security + JWT; phân quyền Khách / Lễ tân / Quản lý. Hiện API ai gọi cũng được.
 - [ ] **Transactional outbox** cho domain event, để không mất xác nhận đơn nếu lỗi giữa chừng.
@@ -437,10 +499,14 @@ Xếp theo thứ tự nên làm. Đánh dấu `[x]` khi xong.
 | `CHECK_IN_TOO_EARLY` | Đúng thiết kế: chỉ check-in từ 15 phút trước giờ bắt đầu. |
 | `NO_PRICE_RULE` | Không có giá cho loại chỗ / khung giờ đó trong bảng `PRICE_RULE`. |
 | `Connection to localhost:5432 refused` | PostgreSQL chưa chạy. Windows: mở *Services* (gõ `services.msc`), tìm `postgresql-x64-…` → *Start*. |
-| `password authentication failed for user "cowork"` | Chưa chạy `db/setup-local.sql` (mục 3), hoặc đã đổi mật khẩu. Kiểm tra `spring.datasource` trong `application.yml`. |
-| `database "cowork" does not exist` | Chưa chạy `db/setup-local.sql` (mục 3). |
-| `Schema-validation: missing column` / `missing table` | Entity Java và bảng không khớp: thiếu migration, hoặc sai tên cột. Xem mục 8 phần "Khi chức năng cần thêm bảng hoặc cột". |
-| `Validate failed: Migration checksum mismatch` | Đã sửa một file migration đã chạy. Hoàn tác thay đổi đó và viết file migration mới. Trên máy dev có thể xóa sạch schema (mục 4.3). |
+| `password authentication failed for user "cowork"` | Mật khẩu trong `application.yml` khác mật khẩu của user `cowork` (mặc định `cowork`, tạo trong Phần 3 của `schema.sql`). |
+| `database "working-space" does not exist` | Chưa tạo database (bước B mục 4.2), hoặc tên database khác với `url` trong `application.yml`. |
+| `Schema-validation: missing table [booking]` | Chưa tạo bảng đó, hoặc tạo sai database / sai tên. |
+| `Schema-validation: missing column [paid_amount] in table [booking]` | Thiếu cột hoặc sai tên cột. Thêm: `ALTER TABLE booking ADD COLUMN paid_amount bigint NOT NULL DEFAULT 0;` |
+| `Schema-validation: wrong column type encountered in column [...]` | Sai kiểu dữ liệu, ví dụ dùng `integer` cho cột tiền (phải là `bigint`), hoặc `varchar` cho id (phải là `uuid`). |
+| `permission denied for table ...` | User `cowork` chưa được cấp quyền trên bảng đó. Chạy lại **Phần 3** ở cuối `schema.sql` (hoặc cả file). |
+| `role "cowork" does not exist` | Chưa chạy `schema.sql` (Phần 3 tạo user này). |
+| `type "tsrange"...` / `data type uuid has no default operator class for access method "gist"` | Chưa chạy `CREATE EXTENSION IF NOT EXISTS btree_gist;` trước khi tạo bảng. |
 | `violates check constraint "ck_..._status"` | Đã thêm giá trị enum mới trong Java mà chưa sửa `CHECK` trong database. |
 | Dữ liệu biến mất sau khi chạy lại | Bạn đang chạy profile `h2` (dữ liệu trong RAM). Chạy không kèm `-Dspring-boot.run.profiles=h2` để dùng PostgreSQL. |
 | Chữ tiếng Việt trong log bị vỡ (`??`) | Do bảng mã console Windows, không phải lỗi code. Chạy `chcp 65001` trước khi `mvn`. |
@@ -478,7 +544,9 @@ Không commit thư mục `backend/target/` (đã có trong `.gitignore`).
 | Entity | Lớp được lưu thành bảng trong database |
 | JPA / Hibernate | Thư viện tự chuyển object Java ↔ bảng database, đỡ phải viết SQL |
 | Transaction | Một nhóm thao tác database: thành công hết hoặc hủy hết |
-| Flyway / migration | Công cụ tự chạy các file SQL `V1__...`, `V2__...` theo thứ tự để tạo/sửa bảng; nhớ file nào đã chạy rồi |
+| pgAdmin 4 | Phần mềm giao diện để quản lý PostgreSQL: tạo database, bảng, xem dữ liệu, chạy SQL |
+| Role / user | Tài khoản đăng nhập database. Ứng dụng dùng user `cowork` |
+| GRANT / quyền | Cho phép một user đọc, ghi trên bảng. User `cowork` chỉ được đọc ghi dữ liệu, không được xóa hay sửa cấu trúc bảng |
 | Profile | Bộ cấu hình thay thế. `h2` = chạy không cần PostgreSQL |
 | Exclusion constraint | Ràng buộc PostgreSQL cấm hai dòng "xung đột" (ở đây: cùng chỗ, giờ chồng nhau) cùng tồn tại |
 | Soft lock / Hold | Giữ chỗ tạm 10 phút trong lúc khách thanh toán |

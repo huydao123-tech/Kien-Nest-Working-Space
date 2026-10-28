@@ -88,7 +88,9 @@ class BookingFlowIntegrationTest extends IntegrationTest {
                         .content(json.writeValueAsString(Map.of("qrToken", booking.get("qrToken").asText()))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("CHECKED_OUT"))
-                .andExpect(jsonPath("$.outstandingAmount").value(300_000));
+                .andExpect(jsonPath("$.outstandingAmount").value(300_000))
+                .andExpect(jsonPath("$.charges[*].type").value(
+                        org.hamcrest.Matchers.contains("RENTAL", "EXTENSION", "OVERSTAY_SURCHARGE")));
 
         mvc.perform(post("/api/bookings/{id}/settle", bookingId).contentType(MediaType.APPLICATION_JSON)
                         .content("{\"amount\":300000}"))
@@ -102,14 +104,18 @@ class BookingFlowIntegrationTest extends IntegrationTest {
         clock.set(tuesday.withHour(8));
         UUID deskId = resource("HD-01").id();
 
-        String first = body(holdRequest(deskId, "2026-11-03T13:00:00", "2026-11-03T15:00:00", 1)).get("id").asText();
+        JsonNode firstBooking = body(holdRequest(deskId, "2026-11-03T13:00:00", "2026-11-03T15:00:00", 1));
+        String first = firstBooking.get("id").asText();
         String txn = initiatePayment(first);
 
         clock.set(tuesday.withHour(8).withMinute(11));
         bookingService.expireHold(UUID.fromString(first));
         assertStatus(first, "EXPIRED");
 
-        holdRequest(deskId, "2026-11-03T13:00:00", "2026-11-03T15:00:00", 1).andExpect(status().isCreated());
+        JsonNode second = body(holdRequest(deskId, "2026-11-03T13:00:00", "2026-11-03T15:00:00", 1)
+                .andExpect(status().isCreated()));
+        assertThat(second.get("customerId")).as("cùng số điện thoại thì là cùng một khách")
+                .isEqualTo(firstBooking.get("customerId"));
 
         completeSandboxPayment(txn, 100_000);
         assertStatus(first, "REFUND_PENDING");

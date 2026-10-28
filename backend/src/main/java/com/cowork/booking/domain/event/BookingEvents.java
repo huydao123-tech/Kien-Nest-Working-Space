@@ -1,6 +1,5 @@
 package com.cowork.booking.domain.event;
 
-import com.cowork.booking.domain.ContactInfo;
 import com.cowork.shared.domain.DomainEvent;
 import com.cowork.shared.domain.Money;
 import com.cowork.shared.domain.TimeRange;
@@ -18,21 +17,21 @@ public final class BookingEvents {
                               LocalDateTime occurredAt) implements DomainEvent {
     }
 
-    public record BookingConfirmed(UUID bookingId, String code, String qrToken, ContactInfo contact, TimeRange period,
+    public record BookingConfirmed(UUID bookingId, String code, String qrToken, UUID customerId, TimeRange period,
                                    LocalDateTime occurredAt) implements DomainEvent {
     }
 
     public enum ReleaseReason { HOLD_EXPIRED, PAYMENT_FAILED }
 
-    public record BookingReleased(UUID bookingId, ReleaseReason reason, ContactInfo contact,
+    public record BookingReleased(UUID bookingId, ReleaseReason reason, UUID customerId,
                                   LocalDateTime occurredAt) implements DomainEvent {
     }
 
-    public record BookingCancelled(UUID bookingId, Money refund, ContactInfo contact,
+    public record BookingCancelled(UUID bookingId, Money refund, UUID customerId,
                                    LocalDateTime occurredAt) implements DomainEvent {
     }
 
-    public record BookingRefundRequired(UUID bookingId, Money amount, String reason, ContactInfo contact,
+    public record BookingRefundRequired(UUID bookingId, Money amount, String reason, UUID customerId,
                                         LocalDateTime occurredAt) implements DomainEvent {
     }
 
