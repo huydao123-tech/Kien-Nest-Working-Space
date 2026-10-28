@@ -1,0 +1,38 @@
+spring:
+  application:
+    name: cowork-booking
+  datasource:
+    url: jdbc:h2:mem:cowork;DB_CLOSE_DELAY=-1;LOCK_TIMEOUT=10000
+    username: sa
+    password:
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: create-drop
+  h2:
+    console:
+      enabled: true
+
+app:
+  time-zone: Asia/Ho_Chi_Minh
+  seed-demo-data: true
+
+# BR-02, BR-16, BR-17 trong SRS
+booking:
+  hold-duration: 10m
+  check-in-early-window: 15m
+  overstay-grace: 5m
+  jobs:
+    enabled: true
+    hold-expiry-delay-ms: 30000
+    overstay-delay-ms: 60000
+
+# BR-03, BR-06 trong SRS
+pricing:
+  block-minutes: 30
+  overstay-multiplier: 1.0
+
+payment:
+  webhook-secret: dev-only-webhook-secret
+  sandbox:
+    enabled: true
