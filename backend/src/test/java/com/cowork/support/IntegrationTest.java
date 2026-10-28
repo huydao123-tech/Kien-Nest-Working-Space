@@ -9,14 +9,16 @@ import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
 import org.springframework.context.annotation.Primary;
+import org.springframework.test.context.ActiveProfiles;
 
 import java.time.ZoneId;
 
 /**
- * Nền chung cho integration test: dùng chung một Spring context (và một CSDL H2),
+ * Nền chung cho integration test: chạy trên H2 (không cần PostgreSQL), dùng chung một Spring context và một CSDL,
  * nên mỗi test phải dùng ngày / vị trí riêng để không đụng nhau.
  */
 @SpringBootTest(properties = "booking.jobs.enabled=false")
+@ActiveProfiles("h2")
 @AutoConfigureMockMvc
 @Import(IntegrationTest.TestClockConfig.class)
 public abstract class IntegrationTest {

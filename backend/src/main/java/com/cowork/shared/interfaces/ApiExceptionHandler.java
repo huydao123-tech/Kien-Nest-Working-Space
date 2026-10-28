@@ -3,6 +3,7 @@ package com.cowork.shared.interfaces;
 import com.cowork.shared.domain.ConflictException;
 import com.cowork.shared.domain.DomainException;
 import com.cowork.shared.domain.NotFoundException;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
@@ -33,6 +34,16 @@ class ApiExceptionHandler {
     @ExceptionHandler(ObjectOptimisticLockingFailureException.class)
     ProblemDetail concurrentUpdate() {
         return problem(HttpStatus.CONFLICT, "CONCURRENT_UPDATE", "Dữ liệu vừa bị thao tác khác thay đổi, vui lòng thử lại");
+    }
+
+    /** Vi phạm ràng buộc ở tầng database — bình thường code đã chặn trước, đây là lớp bảo vệ cuối. */
+    @ExceptionHandler(DataIntegrityViolationException.class)
+    ProblemDetail dataIntegrity(DataIntegrityViolationException e) {
+        String cause = String.valueOf(e.getMostSpecificCause().getMessage());
+        if (cause.contains("ex_booking_no_overlap")) {
+            return problem(HttpStatus.CONFLICT, "SLOT_UNAVAILABLE", "Vị trí đã có người đặt trong khung giờ này");
+        }
+        return problem(HttpStatus.CONFLICT, "DATA_CONFLICT", "Dữ liệu vi phạm ràng buộc của hệ thống");
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)

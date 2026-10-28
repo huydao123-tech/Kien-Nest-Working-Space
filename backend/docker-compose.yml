@@ -1,0 +1,18 @@
+# Dành cho máy đã cài Docker và chưa cài PostgreSQL: docker compose up -d
+# Tạo sẵn database cowork, user cowork / mật khẩu cowork (khớp application.yml), không cần chạy db/setup-local.sql.
+services:
+  postgres:
+    image: postgres:17
+    container_name: cowork-postgres
+    environment:
+      POSTGRES_DB: cowork
+      POSTGRES_USER: cowork
+      POSTGRES_PASSWORD: cowork
+      TZ: Asia/Ho_Chi_Minh
+    ports:
+      - "5432:5432"
+    volumes:
+      - cowork-pgdata:/var/lib/postgresql/data
+
+volumes:
+  cowork-pgdata:

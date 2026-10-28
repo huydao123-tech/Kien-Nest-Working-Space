@@ -6,7 +6,17 @@ Backend cho hệ thống đặt chỗ Co-Working Space theo giờ. Đặc tả: 
 
 ## Chạy
 
-Yêu cầu: JDK 21, Maven 3.9+.
+Yêu cầu: JDK 21, Maven 3.9+, PostgreSQL 16+ (hoặc Docker).
+
+Chuẩn bị database một lần — chọn một trong hai:
+
+```powershell
+& "C:\Program Files\PostgreSQL\18\bin\psql.exe" -h localhost -U postgres -f db/setup-local.sql
+```
+
+```bash
+docker compose up -d
+```
 
 ```bash
 mvn spring-boot:run
@@ -16,7 +26,10 @@ mvn spring-boot:run
 mvn test
 ```
 
-Ứng dụng chạy ở `http://localhost:8080`, dùng H2 in-memory và tự nạp dữ liệu mẫu (15 vị trí, bảng giá cao điểm 09:00–18:00 ngày thường). H2 console: `/h2-console` (JDBC URL `jdbc:h2:mem:cowork`).
+- Kết nối mặc định: `jdbc:postgresql://localhost:5432/cowork`, user/mật khẩu `cowork`. Ghi đè bằng `DB_URL`, `DB_USERNAME`, `DB_PASSWORD`.
+- Schema do **Flyway** quản lý (`src/main/resources/db/migration`); Hibernate chạy `ddl-auto: validate`. Thiết kế: [docs/database.md](../docs/database.md).
+- Dữ liệu mẫu (15 vị trí, bảng giá cao điểm 09:00–18:00 ngày thường) được nạp khi bảng trống.
+- Profile `h2` (`-Dspring-boot.run.profiles=h2`): chạy không cần PostgreSQL, Hibernate tự tạo bảng, có `/h2-console`. Integration test dùng profile này.
 
 ## Kiến trúc
 
@@ -118,6 +131,5 @@ curl -X POST "localhost:8080/api/payments/sandbox/<gatewayTransactionId>/complet
 ## Lưu ý trước khi lên production
 
 - **Outbox:** event giữa các context hiện được phát trong tiến trình. Nếu listener lỗi sau khi giao dịch thanh toán đã commit, đơn sẽ không được cập nhật, nên cần transactional outbox kết hợp job đối soát.
-- **PostgreSQL:** thay H2 bằng Flyway migration và thêm exclusion constraint làm lớp chống trùng chỗ cuối cùng:
-  `EXCLUDE USING gist (resource_id WITH =, tsrange(start_at, end_at) WITH &&) WHERE (status IN ('HELD','CONFIRMED','CHECKED_IN','OVERSTAY'))`.
-- **Cấu hình:** đổi `payment.webhook-secret` và tắt `payment.sandbox.enabled`, `app.seed-demo-data`.
+- **Test trên PostgreSQL:** integration test đang chạy trên H2, nên exclusion constraint `ex_booking_no_overlap` và các partial index chưa được kiểm tra tự động. Nên thêm Testcontainers.
+- **Cấu hình:** đặt `DB_*`, `PAYMENT_WEBHOOK_SECRET`; tắt `payment.sandbox.enabled`, `app.seed-demo-data`.

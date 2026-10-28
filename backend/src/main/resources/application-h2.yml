@@ -1,0 +1,17 @@
+# Profile "h2": chạy không cần PostgreSQL, dữ liệu nằm trong RAM và mất khi tắt ứng dụng.
+# Dùng cho test tự động, hoặc chạy nhanh: mvn spring-boot:run -Dspring-boot.run.profiles=h2
+spring:
+  datasource:
+    url: jdbc:h2:mem:cowork;DB_CLOSE_DELAY=-1;LOCK_TIMEOUT=10000
+    username: sa
+    password:
+  jpa:
+    hibernate:
+      # Migration Flyway viết cho PostgreSQL (exclusion constraint, partial index) nên không chạy trên H2;
+      # ở profile này Hibernate tự tạo bảng từ entity.
+      ddl-auto: create-drop
+  flyway:
+    enabled: false
+  h2:
+    console:
+      enabled: true
