@@ -9,7 +9,7 @@ import java.util.Objects;
 /**
  * Khoảng thời gian nửa mở [startAt, endAt). Hai khoảng chạm mép nhau không bị coi là chồng lấn.
  * Kiểm tra dữ liệu người dùng nhập (giờ kết thúc phải sau giờ bắt đầu) nằm ở tầng business,
- * xem {@code BookingLifecycle.period(...)}.
+ * xem {@code BookingService.hold(...)}.
  */
 @Embeddable
 public record TimeRange(LocalDateTime startAt, LocalDateTime endAt) {

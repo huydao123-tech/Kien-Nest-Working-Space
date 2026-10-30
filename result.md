@@ -1,5 +1,5 @@
 - thứ tự code là 
-1. tạo các domain event cho context
+1. tạo các domain event cho context đó
 2. Viết aggregation, hàm xử lí logic trong nó luôn
 3. Nếu logic cần nhiều aggregation thì tạo riêng qua các domain service(cx trong domain)
 4. Viết service và sử dụng các hàm logic đã viết để tạo 1 usecase hoàn chỉnh
@@ -10,6 +10,7 @@ if (changed) {
             events.publishEventsOf(payment);
         }
 gọi đến:
+    PaymentEventsListener.java
     @TransactionalEventListener
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     void on(PaymentSucceeded event) {

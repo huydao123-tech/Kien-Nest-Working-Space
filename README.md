@@ -281,24 +281,26 @@ BookingController(BookingService bookingService) { this.bookingService = booking
 ```
 
 ### 6.2. Kiến trúc phân tầng (Layered Architecture)
-Code chia thành **3 tầng**, mỗi tầng là một package gốc trong `backend/src/main/java/com/cowork/`:
+Code chia thành **3 tầng**, mỗi tầng là một package gốc trong `backend/src/main/java/com/cowork/`. Mỗi chức năng đi đúng một đường: **Controller → Service → Repository**, giống MVC.
 
 ```
 com.cowork
 ├── presentation/          ① TẦNG TRÌNH BÀY — giao tiếp với người dùng (HTTP)
-│   ├── controller/           các API + ApiExceptionHandler (đổi lỗi thành mã HTTP)
-│   └── dto/                  dữ liệu vào/ra của API (BookingDtos)
+│   └── controller/           các API + ApiExceptionHandler (đổi lỗi thành mã HTTP)
 ├── business/              ② TẦNG NGHIỆP VỤ — xử lý dữ liệu và nghiệp vụ
-│   ├── service/              BookingService, PaymentService, PricingService, CustomerService...
-│   │                         NotificationService + dữ liệu vào/ra của service (HoldBookingCommand, PriceQuote)
+│   ├── service/              BookingService, PaymentService, PricingService, CustomerService,
+│   │                         ResourceService, AvailabilityService, NotificationService
 │   ├── job/                  việc chạy định kỳ (BookingJobs)
 │   └── exception/            lỗi nghiệp vụ (DomainException, ConflictException, NotFoundException)
 ├── dataaccess/            ③ TẦNG TRUY CẬP DỮ LIỆU — làm việc với database và nguồn dữ liệu ngoài
-│   ├── repository/           đọc / ghi database (Spring Data JPA)
+│   ├── repository/           mỗi bảng 1 file: BookingRepository extends JpaRepository...
 │   ├── entity/               lớp ánh xạ với bảng: Booking, Payment, Customer, Resource...
 │   └── integration/          hệ thống ngoài: cổng thanh toán, gửi SMS, chữ ký webhook
+├── dto/                   (dùng chung) dữ liệu vào/ra: BookingDtos, PriceQuote
 └── config/                (dùng chung) cấu hình, đồng hồ, dữ liệu mẫu
 ```
+
+`dto/` nằm ngoài 3 tầng vì cả controller (nhận / trả JSON) lẫn service (nhận request) đều dùng nó.
 
 **Chiều gọi — chỉ đi từ trên xuống:**
 
@@ -310,18 +312,19 @@ presentation  ──▶  business  ──▶  dataaccess  ──▶  database / 
 - `business` **không** biết gì về HTTP: không dùng `HttpServletRequest`, không trả `ResponseEntity`, không import gì từ `presentation`.
 - `dataaccess` **không** import gì từ `business` hay `presentation`. Entity chỉ chứa dữ liệu (field + getter/setter), không kiểm tra quy tắc, không ném lỗi nghiệp vụ.
 
-**Quy tắc nghiệp vụ nằm ở đâu?** Toàn bộ ở tầng `business`:
+**Quy tắc nghiệp vụ nằm ở đâu?** Mỗi nghiệp vụ nằm gọn trong **một service**:
 
-| Nghiệp vụ | Lớp chứa quy tắc |
+| Nghiệp vụ | Service |
 | :--- | :--- |
-| Vòng đời đơn: giữ chỗ, thanh toán, hủy, check-in, gia hạn, quá giờ, check-out | `business/service/BookingLifecycle` |
-| Hoàn tiền khi hủy | `business/service/CancellationPolicy` |
-| Tính giá theo block giờ, phụ phí quá giờ | `business/service/PricingPolicy` |
-| Thanh toán: tạo giao dịch, nhận kết quả từ cổng, chống xử lý trùng | `business/service/PaymentService` |
-| Khách hàng: kiểm tra SĐT / email, tìm hoặc tạo khách | `business/service/CustomerService` |
-| Chỗ ngồi: có nhận đặt không (bảo trì, sức chứa), bảo trì / mở lại | `business/service/ResourceService` |
+| Đơn đặt chỗ: giữ chỗ, xác nhận thanh toán, hủy + hoàn tiền, check-in, gia hạn, quá giờ, check-out | `BookingService` |
+| Tìm chỗ trống | `AvailabilityService` |
+| Tính giá theo block giờ, phụ phí quá giờ | `PricingService` |
+| Thanh toán: tạo giao dịch, nhận kết quả từ cổng, chống xử lý trùng | `PaymentService` |
+| Khách hàng: kiểm tra SĐT / email, tìm hoặc tạo khách | `CustomerService` |
+| Chỗ ngồi: có nhận đặt không (bảo trì, sức chứa), bảo trì / mở lại | `ResourceService` |
+| Nhắn tin cho khách | `NotificationService` |
 
-`BookingLifecycle` **không đọc/ghi database**: nhận một `Booking`, kiểm tra quy tắc và đổi dữ liệu. `BookingService` lo phần đọc, khóa, lưu và gọi `NotificationService` khi cần báo cho khách. Tách như vậy để kiểm thử quy tắc mà không cần Spring hay database (`BookingLifecycleTest`).
+`BookingService` dài nhất (khoảng 350 dòng) nhưng chia thành các khối có tiêu đề: *Đặt chỗ và thanh toán* → *Sử dụng chỗ* → *Việc chạy định kỳ* → *Hàm phụ*. Đọc từ trên xuống là đủ, không cần nhảy file.
 
 **Các service gọi thẳng nhau**, đọc code là thấy ai gọi ai:
 
@@ -338,10 +341,9 @@ Lưu kết quả thanh toán và xác nhận đơn nằm **chung một transacti
 | Loại lớp | Ví dụ | Nằm ở | Giải thích |
 | :--- | :--- | :--- | :--- |
 | **Controller** | `BookingController`, `PaymentController` | `presentation/controller/` | Nhận request, gọi service, trả JSON |
-| **DTO** | `BookingDtos` | `presentation/dto/` | Dữ liệu vào/ra API |
-| **Service** | `BookingService`, `PaymentService`, `CustomerService`, `ResourceService` | `business/service/` | Điều phối một chức năng từ đầu đến cuối, mở transaction, gọi service khác |
-| **Lớp quy tắc** | `BookingLifecycle`, `PricingPolicy`, `CancellationPolicy` | `business/service/` | Quy tắc nghiệp vụ thuần, không đụng database, test được không cần Spring |
-| **Repository** | `BookingRepository` (interface) + `JpaBookingRepository` (cài đặt) | `dataaccess/repository/` | Service chỉ dùng interface; phần cài đặt dùng JPA / SQL |
+| **DTO** | `BookingDtos`, `PriceQuote` | `dto/` | Dữ liệu vào/ra |
+| **Service** | `BookingService`, `PaymentService`, `CustomerService`, `ResourceService` | `business/service/` | Chứa quy tắc nghiệp vụ của chức năng, mở transaction, gọi service khác |
+| **Repository** | `BookingRepository extends JpaRepository` | `dataaccess/repository/` | Mỗi bảng 1 file. Hàm `findBy...` Spring tự sinh SQL; câu phức tạp viết bằng `@Query` |
 | **Entity** | `Booking`, `Resource`, `Payment`, `Customer`, `PriceRule` | `dataaccess/entity/` | Ánh xạ với bảng; chỉ có field + getter/setter |
 | **Kiểu giá trị** | `Money`, `TimeRange`, `ContactInfo`, `BookingCharge`, `StatusChange` | `dataaccess/entity/` | Không có id, không đổi được sau khi tạo |
 
@@ -363,16 +365,15 @@ Lấy ví dụ **khách quét QR để check-in** — `POST /api/check-ins`. M�
 | # | File | Làm gì |
 | :--- | :--- | :--- |
 | 1 | `presentation/controller/BookingController.java` → hàm `checkIn` | Nhận JSON `{qrToken}`, gọi service |
-| 2 | `business/service/BookingService.java` → hàm `checkIn` | Tìm đơn theo QR, lấy giờ hiện tại, gọi `BookingLifecycle`, lưu |
-| 3 | `business/service/BookingLifecycle.java` → hàm `checkIn` | **Kiểm tra quy tắc**: đúng trạng thái? không quá sớm? không quá muộn? Rồi đổi trạng thái và ghi lịch sử |
-| 4 | `dataaccess/repository/JpaBookingRepository.java` | Lưu xuống database |
-| 5 | `presentation/dto/BookingDtos.java` → `BookingResponse.from` | Chuyển đơn thành JSON trả về |
+| 2 | `business/service/BookingService.java` → hàm `checkIn` | Tìm đơn theo QR, **kiểm tra quy tắc** (đúng trạng thái? không quá sớm? không quá muộn?), đổi trạng thái + ghi lịch sử, lưu |
+| 3 | `dataaccess/repository/BookingRepository.java` | `findByQrToken` và `save` — Spring Data JPA tự làm |
+| 4 | `dto/BookingDtos.java` → `BookingResponse.from` | Chuyển đơn thành JSON trả về |
 
 Luồng phức tạp hơn — **thanh toán thành công** — đi qua nhiều service:
 ```
 presentation/controller/SandboxPaymentController → presentation/controller/PaymentWebhookHandler (kiểm tra chữ ký)
   → business/service/PaymentService.handleGatewayResult: kiểm tra trạng thái + số tiền → lưu giao dịch
-    → business/service/BookingService.onPaymentSucceeded → BookingLifecycle.confirmPayment → lưu đơn
+    → business/service/BookingService.onPaymentSucceeded: kiểm tra số tiền → CONFIRMED → lưu đơn
       → business/service/NotificationService.bookingConfirmed → gửi tin nhắn cho khách
 ```
 
@@ -385,8 +386,8 @@ Quy trình chung cho **mọi** chức năng:
 1. **Đọc yêu cầu** trong `docs/use-cases.md` (UC nào) và `docs/SRS.md` (FR/BR nào).
 2. **`dataaccess/entity/`:** thêm field nếu cần lưu dữ liệu mới (chỉ field + getter/setter).
 3. **`dataaccess/repository/`:** thêm truy vấn database nếu cần.
-4. **`business/service/`:** viết quy tắc nghiệp vụ + unit test cho nó, rồi thêm hàm vào service để điều phối.
-5. **`presentation/controller/` + `presentation/dto/`** nếu người dùng gọi trực tiếp, hoặc **`business/job/`** nếu chạy tự động.
+4. **`business/service/`:** thêm hàm vào service, viết quy tắc nghiệp vụ ngay trong hàm đó + unit test cho nó.
+5. **`presentation/controller/` + `dto/`** nếu người dùng gọi trực tiếp, hoặc **`business/job/`** nếu chạy tự động.
 6. **Chạy `mvn test`**, thử bằng Postman.
 7. **Cập nhật tài liệu** (README này, mục 10) và commit.
 
@@ -398,55 +399,55 @@ Quy trình chung cho **mọi** chức năng:
 ```yaml
   no-show-after: 30m
 ```
-và thêm trường tương ứng vào `config/BookingProperties.java` + `business/service/BookingRules.java`.
+và thêm trường `Duration noShowAfter` vào `config/BookingProperties.java`.
 
-**Bước 2 — Thêm quy tắc** vào `business/service/BookingLifecycle.java` (trạng thái `NO_SHOW` đã có sẵn trong `BookingStatus`; entity `Booking` không cần sửa):
+**Bước 2 — Thêm truy vấn** vào `dataaccess/repository/BookingRepository.java` (bắt chước `findIdsByStatusAndEndBefore`):
 ```java
-/** UC24, BR-16: khách không đến sau thời gian ân hạn. */
-public void markNoShow(Booking booking, LocalDateTime now) {
-    requireStatus(booking, EnumSet.of(CONFIRMED), "đánh dấu không đến");
-    if (!now.isAfter(booking.getPeriod().startAt().plus(rules.noShowAfter()))) {
+@Query("select b.id from Booking b where b.status = :status and b.period.startAt < :threshold")
+List<UUID> findIdsByStatusAndStartBefore(@Param("status") BookingStatus status, @Param("threshold") LocalDateTime threshold);
+```
+
+**Bước 3 — Thêm hàm vào** `business/service/BookingService.java`, khối *Việc chạy định kỳ* (bắt chước `expireHold`). Trạng thái `NO_SHOW` đã có sẵn trong `BookingStatus`; entity `Booking` không cần sửa:
+```java
+/** UC24, BR-16: khách không đến sau thời gian chờ. */
+public void markNoShow(UUID bookingId) {
+    Booking booking = load(bookingId);
+    requireStatus(booking, Set.of(CONFIRMED), "đánh dấu không đến");
+    if (!now().isAfter(booking.getPeriod().startAt().plus(properties.noShowAfter()))) {
         throw new DomainException("NOT_NO_SHOW_YET", "Chưa hết thời gian chờ khách");
     }
-    transition(booking, BookingStatus.NO_SHOW, now);
+    changeStatus(booking, BookingStatus.NO_SHOW, now());
+    bookings.save(booking);
+}
+
+@Transactional(readOnly = true)
+public List<UUID> findNoShowIds() {
+    return bookings.findIdsByStatusAndStartBefore(CONFIRMED, now().minus(properties.noShowAfter()));
 }
 ```
 
-**Bước 3 — Viết unit test** trong `src/test/java/com/cowork/business/service/BookingLifecycleTest.java` (chép mẫu từ các test có sẵn):
+**Bước 4 — Viết unit test** trong `src/test/java/com/cowork/business/service/BookingServiceTest.java` (chép mẫu từ các test có sẵn):
 ```java
 @Test
-void unpaidGuestBecomesNoShowAfterGracePeriod() {
+void unpaidGuestBecomesNoShowAfterWaiting() {
     Booking booking = confirmedAt(9, 11);
 
-    assertThatThrownBy(() -> lifecycle.markNoShow(booking, NOW.withHour(9).withMinute(20)))
+    clock.set(NOW.withHour(9).withMinute(20));
+    assertThatThrownBy(() -> service.markNoShow(booking.getId()))
             .hasFieldOrPropertyWithValue("code", "NOT_NO_SHOW_YET");
 
-    lifecycle.markNoShow(booking, NOW.withHour(9).withMinute(31));
+    clock.set(NOW.withHour(9).withMinute(31));
+    service.markNoShow(booking.getId());
     assertThat(booking.getStatus()).isEqualTo(BookingStatus.NO_SHOW);
 }
 ```
-Chạy riêng test này: bấm ▶ cạnh tên hàm trong IntelliJ.
+Trong test, `new BookingProperties(...)` ở `setUp()` cần thêm tham số `Duration.ofMinutes(30)`. Chạy riêng test này: bấm ▶ cạnh tên hàm trong IntelliJ.
 
-**Bước 4 — Thêm truy vấn database:**
-- `dataaccess/repository/BookingRepository.java`: thêm `List<UUID> findConfirmedIdsStartedBefore(LocalDateTime threshold);`
-- `dataaccess/repository/SpringDataBookingRepository.java`: thêm `@Query` tương tự `findIdsByStatusAndEndBefore` nhưng so sánh `b.period.startAt`.
-- `dataaccess/repository/JpaBookingRepository.java`: cài đặt hàm mới.
+**Bước 5 — Cho job tự chạy** trong `business/job/BookingJobs.java` (bắt chước `flagOverstays`): lấy `findNoShowIds()` rồi gọi `markNoShow` cho từng đơn.
 
-**Bước 5 — Thêm hàm vào service** `business/service/BookingService.java` (bắt chước `expireHold` / `findExpiredHoldIds`):
-```java
-public void markNoShow(UUID bookingId) {
-    Booking booking = load(bookingId);
-    lifecycle.markNoShow(booking, now());
-    bookings.save(booking);
-    notifications.noShow(booking);   // bước 7, không bắt buộc
-}
-```
+**Bước 6 — Gửi tin nhắn cho khách** (không bắt buộc): thêm hàm `noShow(Booking booking)` vào `business/service/NotificationService.java` (bắt chước `holdExpired`), rồi gọi nó ở cuối `markNoShow`.
 
-**Bước 6 — Cho job tự chạy** trong `business/job/BookingJobs.java` (bắt chước `flagOverstays`).
-
-**Bước 7 — Gửi tin nhắn cho khách** (không bắt buộc): thêm hàm `noShow(Booking booking)` vào `business/service/NotificationService.java` (bắt chước `holdExpired`).
-
-**Bước 8 —** `mvn test` → tất cả xanh → cập nhật mục 10 → commit.
+**Bước 7 —** `mvn test` → tất cả xanh → cập nhật mục 10 → commit.
 
 Ví dụ này không cần sửa database vì trạng thái `NO_SHOW` đã có trong ràng buộc `ck_booking_status`.
 
@@ -468,7 +469,8 @@ Ví dụ làm voucher (UC05) cần các bảng `voucher`, `voucher_resource_type
 
 ## 9. Quy ước code của dự án
 
-- **Entity chỉ chứa dữ liệu** (field + getter/setter). Quy tắc nghiệp vụ viết ở `business/service`; đổi trạng thái đơn luôn đi qua `BookingLifecycle` (hàm `transition` ghi lịch sử), không gọi thẳng `booking.setStatus(...)` ở chỗ khác.
+- **Entity chỉ chứa dữ liệu** (field + getter/setter). Quy tắc nghiệp vụ viết trong service. Đổi trạng thái đơn luôn gọi `changeStatus(...)` trong `BookingService` (hàm này ghi lịch sử), không gọi thẳng `booking.setStatus(...)`.
+- **Mỗi bảng chỉ 1 repository** `extends JpaRepository`; không tạo thêm lớp cài đặt.
 - **Service gọi thẳng service**, không dùng event. Gửi thông báo (`NotificationService`) luôn đặt **sau** lệnh lưu.
 - **Lỗi nghiệp vụ** ném `DomainException("MA_LOI", "thông báo tiếng Việt")`. Dùng `ConflictException` khi xung đột dữ liệu (→ HTTP 409), `NotFoundException` khi không tìm thấy (→ 404). Không cần tự viết `try/catch` ở controller — `ApiExceptionHandler` lo hết.
 - **Tiền** luôn dùng `Money` (VND, số nguyên), không dùng `double`.

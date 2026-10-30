@@ -30,22 +30,22 @@ Layered architecture 3 tầng:
 ```
 com.cowork
 ├── presentation
-│   ├── controller    REST controller, xử lý webhook, ApiExceptionHandler
-│   └── dto           Dữ liệu vào/ra API (BookingDtos)
+│   └── controller    REST controller, xử lý webhook, ApiExceptionHandler
 ├── business
-│   ├── service       Điều phối nghiệp vụ, transaction, BookingLifecycle, NotificationService, HoldBookingCommand, PriceQuote, PricingPolicy
+│   ├── service       Nghiệp vụ + transaction: BookingService, PaymentService, PricingService, CustomerService, ResourceService, AvailabilityService, NotificationService
 │   ├── job           BookingJobs: hết hạn giữ chỗ, đánh dấu quá giờ
 │   └── exception     DomainException, ConflictException, NotFoundException
 ├── dataaccess
-│   ├── repository    Interface repository + cài đặt bằng Spring Data JPA
+│   ├── repository    Mỗi bảng 1 interface extends JpaRepository
 │   ├── entity        Entity JPA (Booking, Payment, Customer, Resource, PriceRule) và kiểu giá trị (Money, TimeRange)
 │   └── integration   Hệ thống ngoài: PaymentGateway (sandbox), NotificationSender (log), WebhookSignature
+├── dto               (dùng chung) BookingDtos, PriceQuote
 └── config            Properties, Clock, dữ liệu mẫu
 ```
 
 Chiều phụ thuộc: `presentation → business → dataaccess`. `business` không import gì từ `presentation`.
 
-`dataaccess` không import gì từ `business` hay `presentation`: entity chỉ có field + getter/setter. Mọi quy tắc nghiệp vụ nằm ở `business.service`: vòng đời đơn trong `BookingLifecycle` (không đụng database, test bằng `BookingLifecycleTest`), thanh toán trong `PaymentService`, khách hàng trong `CustomerService`, chỗ ngồi trong `ResourceService`, tính giá trong `PricingPolicy`. Các service gọi thẳng nhau, không dùng event.
+`dataaccess` không import gì từ `business` hay `presentation`: entity chỉ có field + getter/setter. Mọi quy tắc nghiệp vụ nằm ở `business.service`, mỗi nghiệp vụ gọn trong một service: đơn đặt chỗ trong `BookingService` (test bằng `BookingServiceTest` với Mockito), thanh toán trong `PaymentService`, khách hàng trong `CustomerService`, chỗ ngồi trong `ResourceService`, tính giá trong `PricingService`. Các service gọi thẳng nhau, không dùng event.
 
 **Đặc điểm khác**
 - `PaymentService` gọi thẳng `BookingService.onPaymentSucceeded/onPaymentFailed`; lưu giao dịch và cập nhật đơn nằm chung một transaction.
@@ -56,15 +56,15 @@ Chiều phụ thuộc: `presentation → business → dataaccess`. `business` kh
 | Quy tắc | Nơi cài đặt |
 | :--- | :--- |
 | BR-01 chống double-booking | `BookingService.hold/extend/onPaymentSucceeded`: khóa bi quan hàng `Resource` (`SELECT … FOR UPDATE`) rồi kiểm tra chồng lấn. Test: `ConcurrentHoldIntegrationTest` (10 luồng, đúng 1 thành công) |
-| BR-02 giữ chỗ tạm 10 phút | `BookingLifecycle.hold/expireHold`, `BookingJobs.expireHolds` |
-| BR-03/04 tính giá theo block, tách cao điểm/thấp điểm | `PricingPolicy` |
-| BR-06 phụ phí quá giờ sau ân hạn | `BookingLifecycle.overstayPeriod`, `PricingService.overstaySurcharge` |
+| BR-02 giữ chỗ tạm 10 phút | `BookingService.hold/expireHold`, `BookingJobs.expireHolds` |
+| BR-03/04 tính giá theo block, tách cao điểm/thấp điểm | `PricingService.quote` |
+| BR-06 phụ phí quá giờ sau ân hạn | `BookingService.checkOut`, `PricingService.overstaySurcharge` |
 | BR-07 gia hạn chỉ khi vị trí còn trống | `BookingService.extend` |
 | BR-09 vị trí bảo trì không nhận đặt | `ResourceService.requireBookable` |
 | BR-11 webhook về trễ: kích hoạt lại hoặc chờ hoàn tiền | `BookingService.onPaymentSucceeded` |
 | BR-14 sức chứa | `ResourceService.requireBookable` |
-| BR-15 hoàn tiền khi hủy (giả định) | `CancellationPolicy` |
-| BR-17 check-in sớm 15 phút | `BookingLifecycle.checkIn` |
+| BR-15 hoàn tiền khi hủy (giả định) | `BookingService.cancel` |
+| BR-17 check-in sớm 15 phút | `BookingService.checkIn` |
 | FR-PAY-02/03 webhook idempotent, chữ ký HMAC | `PaymentService.handleGatewayResult`, `WebhookSignature` |
 
 Đơn `HELD` đã quá hạn nhưng job chưa chạy **vẫn chiếm chỗ**. Nhờ vậy, khi webhook về đúng khoảng trễ đó, việc xác nhận đơn không thể gây trùng chỗ.

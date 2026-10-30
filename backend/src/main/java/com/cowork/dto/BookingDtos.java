@@ -1,4 +1,4 @@
-package com.cowork.presentation.dto;
+package com.cowork.dto;
 
 import com.cowork.dataaccess.entity.Booking;
 import com.cowork.dataaccess.entity.BookingCharge;

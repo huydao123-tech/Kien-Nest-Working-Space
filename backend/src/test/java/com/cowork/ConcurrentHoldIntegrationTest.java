@@ -2,8 +2,8 @@ package com.cowork;
 
 import com.cowork.business.exception.ConflictException;
 import com.cowork.business.service.BookingService;
-import com.cowork.business.service.HoldBookingCommand;
-import com.cowork.dataaccess.entity.ContactInfo;
+import com.cowork.dto.BookingDtos.ContactRequest;
+import com.cowork.dto.BookingDtos.HoldBookingRequest;
 import com.cowork.support.IntegrationTest;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -44,8 +44,8 @@ class ConcurrentHoldIntegrationTest extends IntegrationTest {
             futures.add(pool.submit(() -> {
                 start.await();
                 try {
-                    bookingService.hold(new HoldBookingCommand(deskId, thursday.withHour(10), thursday.withHour(12), 1,
-                            new ContactInfo("Khách " + phone, phone, null)));
+                    bookingService.hold(new HoldBookingRequest(deskId, thursday.withHour(10), thursday.withHour(12), 1,
+                            new ContactRequest("Khách " + phone, phone, null)));
                     succeeded.incrementAndGet();
                 } catch (ConflictException e) {
                     rejected.incrementAndGet();

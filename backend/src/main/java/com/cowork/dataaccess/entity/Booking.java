@@ -21,7 +21,7 @@ import java.util.UUID;
 
 /**
  * Đơn đặt chỗ: một khách đặt một vị trí trong một khung giờ.
- * Chỉ chứa dữ liệu; mọi quy tắc chuyển trạng thái nằm ở {@code BookingLifecycle} (tầng business).
+ * Chỉ chứa dữ liệu; mọi quy tắc chuyển trạng thái nằm ở {@code BookingService}.
  * Các khoản phải thu và lịch sử trạng thái được lưu cùng đơn nhưng ở bảng riêng.
  */
 @Entity

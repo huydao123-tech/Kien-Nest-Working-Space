@@ -1,0 +1,119 @@
+@startuml
+title Sequence — Thanh toán đơn đặt chỗ
+
+actor "Khách" as K
+boundary "PaymentController" as PC
+control "PaymentService" as PS
+control "BookingService" as BS
+control "NotificationService" as NS
+control "CustomerService" as CS
+database "Database" as DB
+participant "Cổng thanh toán" as G
+
+== 1. Tạo giao dịch ==
+K -> PC : Bấm "Thanh toán" (POST /bookings/{id}/payments)
+activate PC
+PC -> PS : initiate(bookingId, VIETQR)
+activate PS
+PS -> BS : get(bookingId)
+activate BS
+BS -> DB : Tìm đơn
+activate DB
+DB --> BS : booking
+deactivate DB
+BS --> PS : booking
+deactivate BS
+
+alt Đơn không ở trạng thái HELD
+    PS --> PC : Lỗi BOOKING_NOT_PAYABLE
+    PC --> K : Báo "Đơn không thể thanh toán" (409)
+else Đơn đang HELD
+    PS -> G : createCheckout(số tiền, hạn trả)
+    activate G
+    G --> PS : Mã giao dịch + link thanh toán
+    deactivate G
+    PS -> DB : Lưu payment (PENDING)
+    activate DB
+    DB --> PS : Đã lưu
+    deactivate DB
+    PS --> PC : payment
+    PC --> K : Hiển thị mã QR / link thanh toán
+end
+deactivate PS
+deactivate PC
+
+== 2. Khách trả tiền ==
+K -> G : Quét VietQR, xác nhận trả tiền
+activate G
+G --> K : Thông báo đã trừ tiền
+deactivate G
+
+== 3. Cổng báo kết quả về hệ thống ==
+G -> PC : Webhook (kết quả + chữ ký)
+activate PC
+
+alt Chữ ký không hợp lệ
+    PC --> G : Từ chối (401)
+else Chữ ký hợp lệ
+    PC -> PS : handleGatewayResult(txn, kết quả, số tiền)
+    activate PS
+    PS -> DB : Tìm payment
+    activate DB
+    DB --> PS : payment
+    deactivate DB
+
+    alt Đã xử lý rồi (webhook gửi lặp)
+        PS --> PC : Bỏ qua, trả payment cũ
+    else Thanh toán thất bại
+        PS -> DB : Lưu payment (FAILED)
+        PS -> BS : onPaymentFailed(bookingId)
+        activate BS
+        BS -> DB : Lưu đơn (FAILED)
+        BS -> NS : paymentFailed(booking)
+        activate NS
+        NS -> CS : contactOf(customerId)
+        NS --> K : SMS "Thanh toán không thành công"
+        deactivate NS
+        deactivate BS
+        PS --> PC : payment
+    else Thanh toán thành công
+        PS -> DB : Lưu payment (SUCCEEDED)
+        PS -> BS : onPaymentSucceeded(bookingId, số tiền)
+        activate BS
+        BS -> DB : Tìm đơn
+        activate DB
+        DB --> BS : booking
+        deactivate DB
+
+        alt Đơn đang HELD
+            BS -> BS : Kiểm tra số tiền khớp tổng đơn
+            BS -> DB : Lưu đơn (CONFIRMED)
+            BS -> NS : bookingConfirmed(booking)
+            activate NS
+            NS -> CS : contactOf(customerId)
+            NS --> K : SMS "Đặt chỗ thành công" + mã QR
+            deactivate NS
+        else Đơn đã EXPIRED (tiền về trễ)
+            BS -> DB : Khóa chỗ, kiểm tra có ai đặt chưa
+            alt Chỗ đã có người khác đặt
+                BS -> DB : Lưu đơn (REFUND_PENDING)
+                BS -> NS : refundAfterLatePayment(booking)
+                activate NS
+                NS --> K : SMS "Sẽ hoàn lại tiền cho bạn"
+                deactivate NS
+            else Chỗ vẫn còn trống
+                BS -> DB : Lưu đơn (CONFIRMED)
+                BS -> NS : bookingConfirmed(booking)
+                activate NS
+                NS --> K : SMS "Đặt chỗ thành công"
+                deactivate NS
+            end
+        end
+        deactivate BS
+        PS --> PC : payment
+    end
+    deactivate PS
+    PC --> G : Đã nhận (200 OK)
+end
+deactivate PC
+@enduml

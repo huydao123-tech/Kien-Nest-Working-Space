@@ -1,4 +1,4 @@
-package com.cowork.business.service;
+package com.cowork.dto;
 
 import com.cowork.dataaccess.entity.Money;
 

@@ -1,10 +1,12 @@
 package com.cowork.business.service;
 
+import com.cowork.business.exception.DomainException;
 import com.cowork.dataaccess.entity.Resource;
 import com.cowork.dataaccess.entity.ResourceType;
 import com.cowork.dataaccess.entity.TimeRange;
 import com.cowork.dataaccess.repository.BookingRepository;
 import com.cowork.dataaccess.repository.ResourceRepository;
+import com.cowork.dto.PriceQuote;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -29,7 +31,11 @@ public class AvailabilityService {
     }
 
     public List<AvailableResource> search(ResourceType type, LocalDateTime startAt, LocalDateTime endAt, int partySize) {
-        TimeRange range = BookingLifecycle.period(startAt, endAt);
+        if (!endAt.isAfter(startAt)) {
+            throw new DomainException("INVALID_TIME_RANGE", "Giờ kết thúc phải sau giờ bắt đầu");
+        }
+        TimeRange range = new TimeRange(startAt, endAt);
+
         List<Resource> candidates = resources.findBookable(type, partySize);
         Set<UUID> occupied = bookings.findOccupiedResourceIds(candidates.stream().map(Resource::getId).toList(), range);
         List<Resource> free = candidates.stream().filter(r -> !occupied.contains(r.getId())).toList();

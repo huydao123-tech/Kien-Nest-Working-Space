@@ -1,0 +1,75 @@
+@startuml
+title Swimlane — Thanh toán đơn đặt chỗ
+
+|Khách|
+start
+:Bấm "Thanh toán" cho đơn đang giữ chỗ;
+
+|Hệ thống|
+:Tìm đơn đặt chỗ;
+if (Đơn đang giữ chỗ (HELD)?) then (không)
+  |Khách|
+  :Nhận báo lỗi
+  "Đơn không thể thanh toán";
+  stop
+else (có)
+  |Hệ thống|
+  :Tạo giao dịch thanh toán;
+  |Cổng thanh toán|
+  :Tạo phiên thanh toán
+  (mã giao dịch + mã QR);
+  |Hệ thống|
+  :Lưu giao dịch (PENDING);
+  |Khách|
+  :Quét VietQR, xác nhận trả tiền;
+  |Cổng thanh toán|
+  :Trừ tiền tài khoản khách;
+  :Gửi kết quả về hệ thống (webhook);
+  |Hệ thống|
+  if (Chữ ký webhook hợp lệ?) then (không)
+    :Từ chối webhook;
+    stop
+  else (có)
+  endif
+  if (Giao dịch đã xử lý rồi?) then (rồi)
+    :Bỏ qua (webhook gửi lặp);
+    stop
+  else (chưa)
+  endif
+  if (Thanh toán thành công?) then (không)
+    :Lưu giao dịch (FAILED);
+    :Chuyển đơn sang FAILED,
+    giải phóng chỗ;
+    |Dịch vụ thông báo|
+    :Gửi SMS "Thanh toán không thành công";
+    |Khách|
+    :Nhận tin nhắn;
+    stop
+  else (có)
+    |Hệ thống|
+    :Lưu giao dịch (SUCCEEDED);
+    if (Đơn còn đang giữ chỗ?) then (còn HELD)
+      :Kiểm tra số tiền khớp tổng đơn;
+      :Chuyển đơn sang CONFIRMED;
+    else (đã EXPIRED - tiền về trễ)
+      :Khóa chỗ, kiểm tra có ai đặt chưa;
+      if (Chỗ đã có người khác đặt?) then (có)
+        :Chuyển đơn sang REFUND_PENDING;
+        |Dịch vụ thông báo|
+        :Gửi SMS "Sẽ hoàn lại tiền cho bạn";
+        |Khách|
+        :Nhận tin nhắn;
+        stop
+      else (chưa)
+        |Hệ thống|
+        :Chuyển đơn sang CONFIRMED;
+      endif
+    endif
+    |Dịch vụ thông báo|
+    :Gửi SMS "Đặt chỗ thành công" + mã QR;
+    |Khách|
+    :Nhận mã đơn và mã QR;
+    stop
+  endif
+endif
+@enduml

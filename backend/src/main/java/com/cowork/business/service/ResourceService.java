@@ -25,7 +25,7 @@ public class ResourceService {
 
     @Transactional(readOnly = true)
     public List<Resource> list() {
-        return resources.findAll();
+        return resources.findAllByOrderByCodeAsc();
     }
 
     /** BR-09, BR-14: chỉ vị trí đang khai thác và đủ sức chứa mới nhận đặt. */

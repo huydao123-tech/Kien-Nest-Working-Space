@@ -1,15 +1,14 @@
 package com.cowork.presentation.controller;
 
 import com.cowork.business.service.BookingService;
-import com.cowork.business.service.HoldBookingCommand;
 import com.cowork.dataaccess.entity.Booking;
 import com.cowork.dataaccess.entity.Money;
-import com.cowork.presentation.dto.BookingDtos.BookingResponse;
-import com.cowork.presentation.dto.BookingDtos.CancelResponse;
-import com.cowork.presentation.dto.BookingDtos.ExtendRequest;
-import com.cowork.presentation.dto.BookingDtos.HoldBookingRequest;
-import com.cowork.presentation.dto.BookingDtos.QrRequest;
-import com.cowork.presentation.dto.BookingDtos.SettleRequest;
+import com.cowork.dto.BookingDtos.BookingResponse;
+import com.cowork.dto.BookingDtos.CancelResponse;
+import com.cowork.dto.BookingDtos.ExtendRequest;
+import com.cowork.dto.BookingDtos.HoldBookingRequest;
+import com.cowork.dto.BookingDtos.QrRequest;
+import com.cowork.dto.BookingDtos.SettleRequest;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -35,8 +34,7 @@ class BookingController {
     @PostMapping("/bookings")
     @ResponseStatus(HttpStatus.CREATED)
     BookingResponse hold(@Valid @RequestBody HoldBookingRequest request) {
-        Booking booking = bookingService.hold(new HoldBookingCommand(request.resourceId(), request.startAt(),
-                request.endAt(), request.partySize(), request.contact().toDomain()));
+        Booking booking = bookingService.hold(request);
         return BookingResponse.from(booking);
     }
 
