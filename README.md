@@ -1,6 +1,6 @@
 # Hệ thống đặt chỗ Co-Working Space theo giờ
 
-Hướng dẫn này viết cho người **mới bắt đầu**: chưa quen Spring Boot, chưa biết DDD là gì, chỉ cần biết lập trình Java cơ bản. Đọc lần lượt từ trên xuống là có thể chạy được dự án và tự làm thêm chức năng mới.
+Hướng dẫn này viết cho người **mới bắt đầu**: chưa quen Spring Boot, chỉ cần biết lập trình Java cơ bản. Đọc lần lượt từ trên xuống là có thể chạy được dự án và tự làm thêm chức năng mới.
 
 ## Mục lục
 1. [Dự án này làm gì?](#1-dự-án-này-làm-gì)
@@ -280,44 +280,70 @@ Một framework Java giúp viết máy chủ web nhanh. Bạn chỉ cần nhớ 
 BookingController(BookingService bookingService) { this.bookingService = bookingService; }
 ```
 
-### 6.2. DDD là gì?
-DDD (Domain-Driven Design) là cách tổ chức code **theo nghiệp vụ** thay vì theo kỹ thuật. Ý tưởng chính:
+### 6.2. Kiến trúc phân tầng (Layered Architecture)
+Code chia thành **3 tầng**, mỗi tầng là một package gốc trong `backend/src/main/java/com/cowork/`:
 
-1. **Chia hệ thống thành các vùng nghiệp vụ** (gọi là *bounded context*). Mỗi vùng là một thư mục:
+```
+com.cowork
+├── presentation/          ① TẦNG TRÌNH BÀY — giao tiếp với người dùng (HTTP)
+│   ├── controller/           các API + ApiExceptionHandler (đổi lỗi thành mã HTTP)
+│   └── dto/                  dữ liệu vào/ra của API (BookingDtos)
+├── business/              ② TẦNG NGHIỆP VỤ — xử lý dữ liệu và nghiệp vụ
+│   ├── service/              BookingService, PaymentService, PricingService, CustomerService...
+│   │                         NotificationService + dữ liệu vào/ra của service (HoldBookingCommand, PriceQuote)
+│   ├── job/                  việc chạy định kỳ (BookingJobs)
+│   └── exception/            lỗi nghiệp vụ (DomainException, ConflictException, NotFoundException)
+├── dataaccess/            ③ TẦNG TRUY CẬP DỮ LIỆU — làm việc với database và nguồn dữ liệu ngoài
+│   ├── repository/           đọc / ghi database (Spring Data JPA)
+│   ├── entity/               lớp ánh xạ với bảng: Booking, Payment, Customer, Resource...
+│   └── integration/          hệ thống ngoài: cổng thanh toán, gửi SMS, chữ ký webhook
+└── config/                (dùng chung) cấu hình, đồng hồ, dữ liệu mẫu
+```
 
-   | Thư mục | Vùng nghiệp vụ |
-   | :--- | :--- |
-   | `space` | Chỗ ngồi, phòng: sức chứa, đang bảo trì hay không |
-   | `pricing` | Bảng giá, cách tính tiền |
-   | `customer` | Khách hàng (định danh bằng số điện thoại) |
-   | `booking` | **Trái tim hệ thống:** đơn đặt chỗ và vòng đời của nó |
-   | `payment` | Thanh toán qua cổng |
-   | `notification` | Gửi tin nhắn cho khách |
-   | `shared` | Những thứ dùng chung: tiền (`Money`), khoảng thời gian (`TimeRange`) |
+**Chiều gọi — chỉ đi từ trên xuống:**
 
-2. **Quy tắc nghiệp vụ nằm trong đối tượng nghiệp vụ.** Ví dụ, quy tắc "chỉ được check-in sớm tối đa 15 phút" nằm trong hàm `Booking.checkIn(...)`, không nằm rải rác ở controller. Không có hàm `setStatus(...)` — muốn đổi trạng thái phải gọi đúng hành động nghiệp vụ (`checkIn`, `cancel`, `extendTo`...). Nhờ vậy không ai có thể vô tình làm sai quy tắc.
+```
+presentation  ──▶  business  ──▶  dataaccess  ──▶  database / hệ thống ngoài
+```
 
-3. **Mỗi vùng chia 4 tầng** (4 thư mục con):
+- `presentation` **không** gọi thẳng `dataaccess`: controller không dùng repository, mọi việc đi qua service.
+- `business` **không** biết gì về HTTP: không dùng `HttpServletRequest`, không trả `ResponseEntity`, không import gì từ `presentation`.
+- `dataaccess` **không** import gì từ `business` hay `presentation`. Entity chỉ chứa dữ liệu (field + getter/setter), không kiểm tra quy tắc, không ném lỗi nghiệp vụ.
 
-   ```
-   booking/
-   ├── domain/          ← NGHIỆP VỤ THUẦN: Booking, BookingStatus, quy tắc. Không biết gì về HTTP.
-   ├── application/     ← KỊCH BẢN: "giữ chỗ" = khóa vị trí → kiểm tra trùng → tính giá → tạo đơn → lưu.
-   ├── infrastructure/  ← KỸ THUẬT: truy vấn database cụ thể (JPA, SQL).
-   └── interfaces/      ← CỬA VÀO: controller nhận HTTP, DTO (dữ liệu vào/ra).
-   ```
-   **Quy tắc vàng:** tầng trên được gọi tầng dưới, **`domain` không được gọi ngược lên** tầng nào khác.
+**Quy tắc nghiệp vụ nằm ở đâu?** Toàn bộ ở tầng `business`:
 
-### 6.3. Các khái niệm DDD gặp trong code
+| Nghiệp vụ | Lớp chứa quy tắc |
+| :--- | :--- |
+| Vòng đời đơn: giữ chỗ, thanh toán, hủy, check-in, gia hạn, quá giờ, check-out | `business/service/BookingLifecycle` |
+| Hoàn tiền khi hủy | `business/service/CancellationPolicy` |
+| Tính giá theo block giờ, phụ phí quá giờ | `business/service/PricingPolicy` |
+| Thanh toán: tạo giao dịch, nhận kết quả từ cổng, chống xử lý trùng | `business/service/PaymentService` |
+| Khách hàng: kiểm tra SĐT / email, tìm hoặc tạo khách | `business/service/CustomerService` |
+| Chỗ ngồi: có nhận đặt không (bảo trì, sức chứa), bảo trì / mở lại | `business/service/ResourceService` |
 
-| Khái niệm | Trong dự án | Giải thích |
-| :--- | :--- | :--- |
-| **Aggregate** | `Booking`, `Resource`, `Payment`, `Customer` | Đối tượng nghiệp vụ chính, có id, tự giữ quy tắc của mình |
-| **Value Object** | `Money`, `TimeRange`, `ContactInfo` | Giá trị không có id, không đổi được; tự kiểm tra hợp lệ khi tạo (ví dụ `Money` không được âm) |
-| **Domain Service** | `PricingPolicy`, `CancellationPolicy` | Quy tắc nghiệp vụ không thuộc riêng aggregate nào |
-| **Repository** | `BookingRepository` (interface ở `domain`) + `JpaBookingRepository` (cài đặt ở `infrastructure`) | Nơi lưu/đọc aggregate. Domain chỉ biết interface, không biết SQL |
-| **Domain Event** | `BookingConfirmed`, `PaymentSucceeded`... | "Thông báo" một việc đã xảy ra. Vùng khác lắng nghe để phản ứng mà không cần gọi trực tiếp |
-| **Application Service** | `BookingService`, `PaymentService` | Điều phối một use case từ đầu đến cuối |
+`BookingLifecycle` **không đọc/ghi database**: nhận một `Booking`, kiểm tra quy tắc và đổi dữ liệu. `BookingService` lo phần đọc, khóa, lưu và gọi `NotificationService` khi cần báo cho khách. Tách như vậy để kiểm thử quy tắc mà không cần Spring hay database (`BookingLifecycleTest`).
+
+**Các service gọi thẳng nhau**, đọc code là thấy ai gọi ai:
+
+```
+PaymentService ──gọi──▶ BookingService.onPaymentSucceeded / onPaymentFailed
+BookingService ──gọi──▶ PricingService, CustomerService, ResourceService, NotificationService
+NotificationService ──gọi──▶ CustomerService (lấy SĐT), NotificationSender (gửi tin)
+```
+
+Lưu kết quả thanh toán và xác nhận đơn nằm **chung một transaction**: một bên lỗi thì cả hai cùng hủy, cổng thanh toán sẽ gửi lại webhook.
+
+### 6.3. Các loại lớp gặp trong code
+
+| Loại lớp | Ví dụ | Nằm ở | Giải thích |
+| :--- | :--- | :--- | :--- |
+| **Controller** | `BookingController`, `PaymentController` | `presentation/controller/` | Nhận request, gọi service, trả JSON |
+| **DTO** | `BookingDtos` | `presentation/dto/` | Dữ liệu vào/ra API |
+| **Service** | `BookingService`, `PaymentService`, `CustomerService`, `ResourceService` | `business/service/` | Điều phối một chức năng từ đầu đến cuối, mở transaction, gọi service khác |
+| **Lớp quy tắc** | `BookingLifecycle`, `PricingPolicy`, `CancellationPolicy` | `business/service/` | Quy tắc nghiệp vụ thuần, không đụng database, test được không cần Spring |
+| **Repository** | `BookingRepository` (interface) + `JpaBookingRepository` (cài đặt) | `dataaccess/repository/` | Service chỉ dùng interface; phần cài đặt dùng JPA / SQL |
+| **Entity** | `Booking`, `Resource`, `Payment`, `Customer`, `PriceRule` | `dataaccess/entity/` | Ánh xạ với bảng; chỉ có field + getter/setter |
+| **Kiểu giá trị** | `Money`, `TimeRange`, `ContactInfo`, `BookingCharge`, `StatusChange` | `dataaccess/entity/` | Không có id, không đổi được sau khi tạo |
 
 ### 6.4. Vòng đời đơn đặt chỗ
 Đây là thứ quan trọng nhất cần hiểu. Hình đầy đủ ở [docs/diagrams.md mục 3.1](docs/diagrams.md#31-vòng-đời-đơn-đặt-chỗ-booking).
@@ -336,19 +362,18 @@ Lấy ví dụ **khách quét QR để check-in** — `POST /api/check-ins`. M�
 
 | # | File | Làm gì |
 | :--- | :--- | :--- |
-| 1 | `booking/interfaces/BookingController.java` → hàm `checkIn` | Nhận JSON `{qrToken}`, gọi service |
-| 2 | `booking/application/BookingService.java` → hàm `checkIn` | Tìm đơn theo QR, lấy giờ hiện tại, gọi aggregate, lưu, phát event |
-| 3 | `booking/domain/Booking.java` → hàm `checkIn` | **Kiểm tra quy tắc**: đúng trạng thái? không quá sớm? không quá muộn? Rồi đổi trạng thái và ghi nhận event `BookingCheckedIn` |
-| 4 | `booking/infrastructure/JpaBookingRepository.java` | Lưu xuống database |
-| 5 | `booking/interfaces/BookingDtos.java` → `BookingResponse.from` | Chuyển đơn thành JSON trả về |
+| 1 | `presentation/controller/BookingController.java` → hàm `checkIn` | Nhận JSON `{qrToken}`, gọi service |
+| 2 | `business/service/BookingService.java` → hàm `checkIn` | Tìm đơn theo QR, lấy giờ hiện tại, gọi `BookingLifecycle`, lưu |
+| 3 | `business/service/BookingLifecycle.java` → hàm `checkIn` | **Kiểm tra quy tắc**: đúng trạng thái? không quá sớm? không quá muộn? Rồi đổi trạng thái và ghi lịch sử |
+| 4 | `dataaccess/repository/JpaBookingRepository.java` | Lưu xuống database |
+| 5 | `presentation/dto/BookingDtos.java` → `BookingResponse.from` | Chuyển đơn thành JSON trả về |
 
-Luồng phức tạp hơn — **thanh toán thành công** — đi qua 2 vùng nhờ event:
+Luồng phức tạp hơn — **thanh toán thành công** — đi qua nhiều service:
 ```
-SandboxPaymentController → PaymentWebhookHandler (kiểm tra chữ ký)
-  → PaymentService.handleGatewayResult → Payment.succeed() phát event PaymentSucceeded
-    → (sau khi lưu xong) booking/application/PaymentEventsListener nghe event
-      → BookingService.onPaymentSucceeded → Booking.confirmPayment() phát event BookingConfirmed
-        → notification/application/BookingNotificationListener gửi tin nhắn cho khách
+presentation/controller/SandboxPaymentController → presentation/controller/PaymentWebhookHandler (kiểm tra chữ ký)
+  → business/service/PaymentService.handleGatewayResult: kiểm tra trạng thái + số tiền → lưu giao dịch
+    → business/service/BookingService.onPaymentSucceeded → BookingLifecycle.confirmPayment → lưu đơn
+      → business/service/NotificationService.bookingConfirmed → gửi tin nhắn cho khách
 ```
 
 **Cách nhanh nhất để hiểu:** mở `BookingFlowIntegrationTest.java`, đặt breakpoint (click lề trái cạnh số dòng), chuột phải → *Debug*, rồi bấm F7/F8 để đi từng bước.
@@ -358,10 +383,10 @@ SandboxPaymentController → PaymentWebhookHandler (kiểm tra chữ ký)
 Quy trình chung cho **mọi** chức năng:
 
 1. **Đọc yêu cầu** trong `docs/use-cases.md` (UC nào) và `docs/SRS.md` (FR/BR nào).
-2. **Domain trước:** thêm hành vi vào aggregate + viết unit test cho nó.
-3. **Application:** thêm hàm vào service để điều phối.
-4. **Infrastructure:** thêm truy vấn database nếu cần.
-5. **Interfaces:** thêm API (nếu người dùng gọi trực tiếp) hoặc job (nếu tự động).
+2. **`dataaccess/entity/`:** thêm field nếu cần lưu dữ liệu mới (chỉ field + getter/setter).
+3. **`dataaccess/repository/`:** thêm truy vấn database nếu cần.
+4. **`business/service/`:** viết quy tắc nghiệp vụ + unit test cho nó, rồi thêm hàm vào service để điều phối.
+5. **`presentation/controller/` + `presentation/dto/`** nếu người dùng gọi trực tiếp, hoặc **`business/job/`** nếu chạy tự động.
 6. **Chạy `mvn test`**, thử bằng Postman.
 7. **Cập nhật tài liệu** (README này, mục 10) và commit.
 
@@ -373,61 +398,55 @@ Quy trình chung cho **mọi** chức năng:
 ```yaml
   no-show-after: 30m
 ```
-và thêm trường tương ứng vào `booking/application/BookingProperties.java` + `booking/domain/BookingRules.java`.
+và thêm trường tương ứng vào `config/BookingProperties.java` + `business/service/BookingRules.java`.
 
-**Bước 2 — Thêm event** vào `booking/domain/event/BookingEvents.java`:
-```java
-public record BookingNoShow(UUID bookingId, UUID resourceId, LocalDateTime occurredAt) implements DomainEvent {
-}
-```
-
-**Bước 3 — Thêm hành vi vào aggregate** `booking/domain/Booking.java` (trạng thái `NO_SHOW` đã có sẵn trong `BookingStatus`):
+**Bước 2 — Thêm quy tắc** vào `business/service/BookingLifecycle.java` (trạng thái `NO_SHOW` đã có sẵn trong `BookingStatus`; entity `Booking` không cần sửa):
 ```java
 /** UC24, BR-16: khách không đến sau thời gian ân hạn. */
-public void markNoShow(BookingRules rules, LocalDateTime now) {
-    requireStatus(EnumSet.of(CONFIRMED), "đánh dấu không đến");
-    if (!now.isAfter(period.startAt().plus(rules.noShowAfter()))) {
+public void markNoShow(Booking booking, LocalDateTime now) {
+    requireStatus(booking, EnumSet.of(CONFIRMED), "đánh dấu không đến");
+    if (!now.isAfter(booking.getPeriod().startAt().plus(rules.noShowAfter()))) {
         throw new DomainException("NOT_NO_SHOW_YET", "Chưa hết thời gian chờ khách");
     }
-    status = BookingStatus.NO_SHOW;
-    registerEvent(new BookingNoShow(id, resourceId, now));
+    transition(booking, BookingStatus.NO_SHOW, now);
 }
 ```
 
-**Bước 4 — Viết unit test** trong `src/test/java/com/cowork/booking/domain/BookingTest.java` (chép mẫu từ các test có sẵn):
+**Bước 3 — Viết unit test** trong `src/test/java/com/cowork/business/service/BookingLifecycleTest.java` (chép mẫu từ các test có sẵn):
 ```java
 @Test
 void unpaidGuestBecomesNoShowAfterGracePeriod() {
     Booking booking = confirmedAt(9, 11);
 
-    assertThatThrownBy(() -> booking.markNoShow(RULES, NOW.withHour(9).withMinute(20)))
+    assertThatThrownBy(() -> lifecycle.markNoShow(booking, NOW.withHour(9).withMinute(20)))
             .hasFieldOrPropertyWithValue("code", "NOT_NO_SHOW_YET");
 
-    booking.markNoShow(RULES, NOW.withHour(9).withMinute(31));
-    assertThat(booking.status()).isEqualTo(BookingStatus.NO_SHOW);
+    lifecycle.markNoShow(booking, NOW.withHour(9).withMinute(31));
+    assertThat(booking.getStatus()).isEqualTo(BookingStatus.NO_SHOW);
 }
 ```
 Chạy riêng test này: bấm ▶ cạnh tên hàm trong IntelliJ.
 
-**Bước 5 — Thêm truy vấn database:**
-- `booking/domain/BookingRepository.java`: thêm `List<UUID> findConfirmedIdsStartedBefore(LocalDateTime threshold);`
-- `booking/infrastructure/SpringDataBookingRepository.java`: thêm `@Query` tương tự `findIdsByStatusAndEndBefore` nhưng so sánh `b.period.startAt`.
-- `booking/infrastructure/JpaBookingRepository.java`: cài đặt hàm mới.
+**Bước 4 — Thêm truy vấn database:**
+- `dataaccess/repository/BookingRepository.java`: thêm `List<UUID> findConfirmedIdsStartedBefore(LocalDateTime threshold);`
+- `dataaccess/repository/SpringDataBookingRepository.java`: thêm `@Query` tương tự `findIdsByStatusAndEndBefore` nhưng so sánh `b.period.startAt`.
+- `dataaccess/repository/JpaBookingRepository.java`: cài đặt hàm mới.
 
-**Bước 6 — Thêm hàm vào service** `booking/application/BookingService.java` (bắt chước `expireHold` / `findExpiredHoldIds`):
+**Bước 5 — Thêm hàm vào service** `business/service/BookingService.java` (bắt chước `expireHold` / `findExpiredHoldIds`):
 ```java
 public void markNoShow(UUID bookingId) {
     Booking booking = load(bookingId);
-    booking.markNoShow(rules, now());
-    saveAndPublish(booking);
+    lifecycle.markNoShow(booking, now());
+    bookings.save(booking);
+    notifications.noShow(booking);   // bước 7, không bắt buộc
 }
 ```
 
-**Bước 7 — Cho job tự chạy** trong `booking/application/BookingJobs.java` (bắt chước `flagOverstays`).
+**Bước 6 — Cho job tự chạy** trong `business/job/BookingJobs.java` (bắt chước `flagOverstays`).
 
-**Bước 8 — Gửi tin nhắn cho khách** (không bắt buộc): thêm hàm `on(BookingNoShow event)` vào `notification/application/BookingNotificationListener.java`.
+**Bước 7 — Gửi tin nhắn cho khách** (không bắt buộc): thêm hàm `noShow(Booking booking)` vào `business/service/NotificationService.java` (bắt chước `holdExpired`).
 
-**Bước 9 —** `mvn test` → tất cả xanh → cập nhật mục 10 → commit.
+**Bước 8 —** `mvn test` → tất cả xanh → cập nhật mục 10 → commit.
 
 Ví dụ này không cần sửa database vì trạng thái `NO_SHOW` đã có trong ràng buộc `ck_booking_status`.
 
@@ -445,16 +464,17 @@ Ví dụ làm voucher (UC05) cần các bảng `voucher`, `voucher_resource_type
    ALTER TABLE booking ADD CONSTRAINT ck_booking_status CHECK (status IN ('HELD', ..., 'TRANG_THAI_MOI'));
    ```
 
-> Không chắc đặt code ở đâu? Tự hỏi: *"Đây là quy tắc nghiệp vụ hay là thao tác kỹ thuật?"* — Quy tắc → `domain`. Gọi nhiều thứ theo thứ tự → `application`. SQL / gọi hệ thống ngoài → `infrastructure`. HTTP → `interfaces`.
+> Không chắc đặt code ở đâu? Tự hỏi: *"Đây là quy tắc nghiệp vụ hay là thao tác kỹ thuật?"* — HTTP, JSON → `presentation`. Xử lý nghiệp vụ, gọi nhiều thứ theo thứ tự, mở transaction → `business`. SQL, gọi hệ thống ngoài → `dataaccess`.
 
 ## 9. Quy ước code của dự án
 
-- **Không viết setter** trong aggregate. Đặt tên hàm theo hành động nghiệp vụ: `checkIn`, `cancel`, `markMaintenance`.
+- **Entity chỉ chứa dữ liệu** (field + getter/setter). Quy tắc nghiệp vụ viết ở `business/service`; đổi trạng thái đơn luôn đi qua `BookingLifecycle` (hàm `transition` ghi lịch sử), không gọi thẳng `booking.setStatus(...)` ở chỗ khác.
+- **Service gọi thẳng service**, không dùng event. Gửi thông báo (`NotificationService`) luôn đặt **sau** lệnh lưu.
 - **Lỗi nghiệp vụ** ném `DomainException("MA_LOI", "thông báo tiếng Việt")`. Dùng `ConflictException` khi xung đột dữ liệu (→ HTTP 409), `NotFoundException` khi không tìm thấy (→ 404). Không cần tự viết `try/catch` ở controller — `ApiExceptionHandler` lo hết.
 - **Tiền** luôn dùng `Money` (VND, số nguyên), không dùng `double`.
 - **Thời gian** luôn lấy từ `Clock` được inject (`LocalDateTime.now(clock)`), **không gọi** `LocalDateTime.now()` trực tiếp — để test có thể "tua" đồng hồ.
 - **Ghi mã yêu cầu** trong chú thích khi cài đặt một quy tắc: `/** UC08: ... (BR-07) */`.
-- **Mỗi chức năng mới phải có test.** Quy tắc nghiệp vụ → unit test ở `domain`. Luồng qua API → integration test (kế thừa `IntegrationTest`).
+- **Mỗi chức năng mới phải có test.** Quy tắc nghiệp vụ → unit test trong `src/test/java/com/cowork/business/service/`. Luồng qua API → integration test (kế thừa `IntegrationTest`).
 - Mỗi integration test dùng **ngày và vị trí riêng** (các test dùng chung một database). Đang dùng: 02/11 `MR-02`, 03/11 `HD-01`, 04/11 `HD-03`, 05/11 `HD-02`, 06/11 `FB-02`.
 - **Đổi cấu hình** (thời gian giữ chỗ, giá...) trong `application.yml`, không sửa số cứng trong code.
 
@@ -467,13 +487,13 @@ Xếp theo thứ tự nên làm. Đánh dấu `[x]` khi xong.
 - [ ] Cân nhắc dùng công cụ migration (Flyway/Liquibase) khi có nhiều người cùng làm hoặc có server production, để mọi máy luôn có cùng cấu trúc bảng.
 - [ ] **Integration test chạy trên PostgreSQL thật** (Testcontainers, cần Docker) — hiện test chạy trên H2 nên chưa kiểm tra tự động các ràng buộc riêng của PostgreSQL.
 - [ ] **Đăng nhập & phân quyền** (UC01, UC23): Spring Security + JWT; phân quyền Khách / Lễ tân / Quản lý. Hiện API ai gọi cũng được.
-- [ ] **Transactional outbox** cho domain event, để không mất xác nhận đơn nếu lỗi giữa chừng.
+- [ ] **Gửi thông báo sau khi commit** (hoặc qua bảng `notification_job`): hiện tin nhắn được gửi trong transaction, trước khi commit; cần sửa trước khi nối SMS / Zalo thật.
 - [ ] **Tích hợp cổng thanh toán thật** (VNPay / MoMo / PayOS): viết lớp mới cài đặt interface `PaymentGateway`, thay `SandboxPaymentGateway`.
 
 **Chức năng còn thiếu**
 - [ ] No-show (UC24, BR-16) — có hướng dẫn chi tiết ở [mục 8](#8-làm-thêm-chức-năng-mới--ví-dụ-từng-bước), **nên làm đầu tiên để làm quen**.
 - [ ] Nhắc lịch trước 30 phút, cảnh báo trước 15 phút hết giờ (UC26, UC12).
-- [ ] Hoàn tiền thật qua cổng (UC25) — hiện chỉ phát event `BookingRefundRequired`.
+- [ ] Hoàn tiền thật qua cổng (UC25) — hiện đơn chỉ chuyển sang `REFUND_PENDING` và nhắn tin cho khách.
 - [ ] Job đối soát giao dịch chưa rõ kết quả (UC25, trạng thái `UNCONFIRMED`).
 - [ ] Voucher và gói Membership (UC05, UC21).
 - [ ] Add-on: máy chiếu, màn hình, đồ ăn (FR-BOOK-02).
@@ -558,4 +578,5 @@ Không commit thư mục `backend/target/` (đã có trong `.gitignore`).
 | Overstay | Khách ngồi quá giờ đã đặt |
 | Block giờ | Đơn vị tính tiền nhỏ nhất (30 phút). 40 phút được làm tròn lên thành 2 block |
 | Sandbox | Môi trường giả lập để thử, không có tiền thật |
-| Bounded context / Aggregate / Value Object / Domain Event | Xem [mục 6.3](#63-các-khái-niệm-ddd-gặp-trong-code) |
+| Layered architecture | Chia code thành 3 tầng: presentation → business → dataaccess. Xem [mục 6.2](#62-kiến-trúc-phân-tầng-layered-architecture) |
+| Entity / kiểu giá trị | Xem [mục 6.3](#63-các-loại-lớp-gặp-trong-code) |

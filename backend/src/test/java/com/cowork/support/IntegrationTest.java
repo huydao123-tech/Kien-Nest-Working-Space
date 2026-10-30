@@ -1,7 +1,7 @@
 package com.cowork.support;
 
-import com.cowork.space.domain.Resource;
-import com.cowork.space.domain.ResourceRepository;
+import com.cowork.dataaccess.entity.Resource;
+import com.cowork.dataaccess.repository.ResourceRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -31,7 +31,7 @@ public abstract class IntegrationTest {
 
     protected Resource resource(String code) {
         return resources.findAll().stream()
-                .filter(r -> r.code().equals(code))
+                .filter(r -> r.getCode().equals(code))
                 .findFirst()
                 .orElseThrow();
     }

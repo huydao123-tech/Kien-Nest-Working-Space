@@ -25,50 +25,47 @@ mvn test
 
 ## Kiến trúc
 
-Modular monolith, mỗi bounded context là một package, bên trong chia 4 lớp theo DDD:
+Layered architecture 3 tầng:
 
 ```
 com.cowork
-├── shared         Shared kernel: Money, TimeRange, ResourceType, AggregateRoot, DomainEvent, xử lý lỗi API
-├── space          Vị trí cho thuê và trạng thái khai thác (Resource aggregate)
-├── pricing        Bảng giá & tính tiền theo block giờ (PriceRule, PricingPolicy)
-├── customer       Khách hàng, định danh bằng số điện thoại (Customer aggregate)
-├── booking        Lõi nghiệp vụ: vòng đời đơn đặt chỗ (Booking aggregate, kèm các khoản tiền và lịch sử trạng thái)
-├── payment        Giao dịch thanh toán, webhook có ký, cổng sandbox (Payment aggregate)
-├── notification   Gửi thông báo khi đơn đổi trạng thái
-└── bootstrap      Dữ liệu mẫu
+├── presentation
+│   ├── controller    REST controller, xử lý webhook, ApiExceptionHandler
+│   └── dto           Dữ liệu vào/ra API (BookingDtos)
+├── business
+│   ├── service       Điều phối nghiệp vụ, transaction, BookingLifecycle, NotificationService, HoldBookingCommand, PriceQuote, PricingPolicy
+│   ├── job           BookingJobs: hết hạn giữ chỗ, đánh dấu quá giờ
+│   └── exception     DomainException, ConflictException, NotFoundException
+├── dataaccess
+│   ├── repository    Interface repository + cài đặt bằng Spring Data JPA
+│   ├── entity        Entity JPA (Booking, Payment, Customer, Resource, PriceRule) và kiểu giá trị (Money, TimeRange)
+│   └── integration   Hệ thống ngoài: PaymentGateway (sandbox), NotificationSender (log), WebhookSignature
+└── config            Properties, Clock, dữ liệu mẫu
 ```
 
-| Lớp | Vai trò | Phụ thuộc |
-| :--- | :--- | :--- |
-| `domain` | Aggregate, value object, domain service, domain event, interface repository | Chỉ `shared.domain` (và annotation JPA) |
-| `application` | Use case, điều phối giao dịch, port ra ngoài (`PaymentGateway`, `NotificationSender`…) | `domain` |
-| `infrastructure` | Cài đặt repository (Spring Data JPA), adapter cổng thanh toán, ACL giữa các context | `application`, `domain` |
-| `interfaces` | REST controller, DTO | `application` |
+Chiều phụ thuộc: `presentation → business → dataaccess`. `business` không import gì từ `presentation`.
 
-**Giao tiếp giữa các context**
-- Payment → Booking: qua domain event `PaymentSucceeded` / `PaymentFailed`, Booking nghe ở pha `AFTER_COMMIT` trong giao dịch mới.
-- Payment cần thông tin đơn: qua port `PayableBookingProvider` (anti-corruption layer, cài đặt ở `payment.infrastructure.BookingContextAdapter`).
-- Booking → Notification: qua các event trong `BookingEvents`.
-- Booking dùng Space và Pricing qua `ResourceRepository` và `PricingService`.
+`dataaccess` không import gì từ `business` hay `presentation`: entity chỉ có field + getter/setter. Mọi quy tắc nghiệp vụ nằm ở `business.service`: vòng đời đơn trong `BookingLifecycle` (không đụng database, test bằng `BookingLifecycleTest`), thanh toán trong `PaymentService`, khách hàng trong `CustomerService`, chỗ ngồi trong `ResourceService`, tính giá trong `PricingPolicy`. Các service gọi thẳng nhau, không dùng event.
 
-**Đánh đổi có chủ đích:** aggregate được đánh annotation JPA trực tiếp thay vì tách persistence model riêng, để giảm mapping trùng lặp; hành vi vẫn nằm hoàn toàn trong aggregate (không có setter).
+**Đặc điểm khác**
+- `PaymentService` gọi thẳng `BookingService.onPaymentSucceeded/onPaymentFailed`; lưu giao dịch và cập nhật đơn nằm chung một transaction.
+- `BookingService` gọi thẳng `NotificationService` sau khi lưu đơn (xác nhận, hết hạn, thất bại, hủy, hoàn tiền vì thanh toán trễ).
 
 ## Các quy tắc nghiệp vụ đã cài đặt
 
 | Quy tắc | Nơi cài đặt |
 | :--- | :--- |
 | BR-01 chống double-booking | `BookingService.hold/extend/onPaymentSucceeded`: khóa bi quan hàng `Resource` (`SELECT … FOR UPDATE`) rồi kiểm tra chồng lấn. Test: `ConcurrentHoldIntegrationTest` (10 luồng, đúng 1 thành công) |
-| BR-02 giữ chỗ tạm 10 phút | `Booking.hold`, `BookingJobs.expireHolds` |
+| BR-02 giữ chỗ tạm 10 phút | `BookingLifecycle.hold/expireHold`, `BookingJobs.expireHolds` |
 | BR-03/04 tính giá theo block, tách cao điểm/thấp điểm | `PricingPolicy` |
-| BR-06 phụ phí quá giờ sau ân hạn | `Booking.overstayPeriod`, `PricingService.overstaySurcharge` |
+| BR-06 phụ phí quá giờ sau ân hạn | `BookingLifecycle.overstayPeriod`, `PricingService.overstaySurcharge` |
 | BR-07 gia hạn chỉ khi vị trí còn trống | `BookingService.extend` |
-| BR-09 vị trí bảo trì không nhận đặt | `Resource.ensureCanHost` |
+| BR-09 vị trí bảo trì không nhận đặt | `ResourceService.requireBookable` |
 | BR-11 webhook về trễ: kích hoạt lại hoặc chờ hoàn tiền | `BookingService.onPaymentSucceeded` |
-| BR-14 sức chứa | `Resource.ensureCanHost` |
+| BR-14 sức chứa | `ResourceService.requireBookable` |
 | BR-15 hoàn tiền khi hủy (giả định) | `CancellationPolicy` |
-| BR-17 check-in sớm 15 phút | `Booking.checkIn` |
-| FR-PAY-02/03 webhook idempotent, chữ ký HMAC | `Payment.succeed/fail`, `WebhookSignature` |
+| BR-17 check-in sớm 15 phút | `BookingLifecycle.checkIn` |
+| FR-PAY-02/03 webhook idempotent, chữ ký HMAC | `PaymentService.handleGatewayResult`, `WebhookSignature` |
 
 Đơn `HELD` đã quá hạn nhưng job chưa chạy **vẫn chiếm chỗ**. Nhờ vậy, khi webhook về đúng khoảng trễ đó, việc xác nhận đơn không thể gây trùng chỗ.
 
@@ -117,12 +114,12 @@ curl -X POST "localhost:8080/api/payments/sandbox/<gatewayTransactionId>/complet
 - UC10, UC11, UC17 đầy đủ, UC18: gọi dịch vụ, ticket sự cố, sắp xếp lại booking khi bảo trì, đền bù.
 - UC13–UC15: màn hình quầy, walk-in thu tiền mặt, đổi chỗ.
 - UC19, UC20, UC22: quản trị sơ đồ, bảng giá, báo cáo.
-- UC24: no-show. UC25: job đối soát chủ động, gọi API hoàn tiền (hiện chỉ tạo event `BookingRefundRequired`).
+- UC24: no-show. UC25: job đối soát chủ động, gọi API hoàn tiền (hiện đơn chỉ chuyển `REFUND_PENDING` và nhắn tin).
 - UC26: lịch nhắc trước 30 phút / cảnh báo trước 15 phút, kênh thật SMS/Zalo/Email.
 - Add-on, nhiều chi nhánh, hóa đơn điện tử, tích hợp cửa kiểm soát/Wi-Fi.
 
 ## Lưu ý trước khi lên production
 
-- **Outbox:** event giữa các context hiện được phát trong tiến trình. Nếu listener lỗi sau khi giao dịch thanh toán đã commit, đơn sẽ không được cập nhật, nên cần transactional outbox kết hợp job đối soát.
+- **Thông báo:** tin nhắn đang được gửi trong transaction, trước khi commit. Khi nối SMS / Zalo thật cần chuyển sang gửi sau commit (hoặc qua bảng `notification_job` + job gửi).
 - **Test trên PostgreSQL:** integration test đang chạy trên H2, nên exclusion constraint `ex_booking_no_overlap` và các partial index chưa được kiểm tra tự động. Nên thêm Testcontainers.
 - **Cấu hình:** đặt `DB_*`, `PAYMENT_WEBHOOK_SECRET`; tắt `payment.sandbox.enabled`, `app.seed-demo-data`.
