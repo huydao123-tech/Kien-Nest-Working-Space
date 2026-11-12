@@ -11,7 +11,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -32,7 +31,7 @@ class ConcurrentHoldIntegrationTest extends IntegrationTest {
     void onlyOneOfManySimultaneousHoldsSucceeds() throws Exception {
         LocalDateTime thursday = LocalDateTime.of(2026, 11, 5, 0, 0);
         clock.set(thursday.withHour(8));
-        UUID deskId = resource("HD-02").getId();
+        Long deskId = resource("HD-02").getId();
 
         AtomicInteger succeeded = new AtomicInteger();
         AtomicInteger rejected = new AtomicInteger();

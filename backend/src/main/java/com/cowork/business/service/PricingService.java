@@ -2,11 +2,11 @@ package com.cowork.business.service;
 
 import com.cowork.business.exception.DomainException;
 import com.cowork.config.PricingProperties;
-import com.cowork.dataaccess.entity.DayType;
-import com.cowork.dataaccess.entity.Money;
+import com.cowork.dataaccess.enums.DayType;
+import com.cowork.dataaccess.valueobject.Money;
 import com.cowork.dataaccess.entity.PriceRule;
-import com.cowork.dataaccess.entity.ResourceType;
-import com.cowork.dataaccess.entity.TimeRange;
+import com.cowork.dataaccess.enums.ResourceTypeCode;
+import com.cowork.dataaccess.valueobject.TimeRange;
 import com.cowork.dataaccess.repository.PriceRuleRepository;
 import com.cowork.dto.PriceQuote;
 import org.springframework.stereotype.Service;
@@ -36,8 +36,8 @@ public class PricingService {
         this.properties = properties;
     }
 
-    public PriceQuote quote(ResourceType type, TimeRange range) {
-        List<PriceRule> rules = priceRules.findByResourceType(type);
+    public PriceQuote quote(ResourceTypeCode type, TimeRange range) {
+        List<PriceRule> rules = priceRules.findByResourceTypeCode(type);
         int blockMinutes = properties.blockMinutes();
         int blocks = (int) Math.ceilDiv(range.duration().toSeconds(), blockMinutes * 60L);
 
@@ -51,16 +51,16 @@ public class PricingService {
         return new PriceQuote(blocks, blockMinutes, total);
     }
 
-    public Money overstaySurcharge(ResourceType type, TimeRange overstay) {
+    public Money overstaySurcharge(ResourceTypeCode type, TimeRange overstay) {
         return quote(type, overstay).total().multiply(properties.overstayMultiplier());
     }
 
     /** Tìm mức giá áp dụng cho loại chỗ {@code type} tại thời điểm {@code at}. */
-    private static PriceRule findRule(List<PriceRule> rules, ResourceType type, LocalDateTime at) {
+    private static PriceRule findRule(List<PriceRule> rules, ResourceTypeCode type, LocalDateTime at) {
         int minuteOfDay = at.getHour() * 60 + at.getMinute();
         DayType dayType = DayType.of(at.getDayOfWeek());
         for (PriceRule rule : rules) {
-            if (rule.getResourceType() == type
+            if (rule.getResourceType().getCode() == type
                     && rule.getDayType() == dayType
                     && minuteOfDay >= rule.getStartMinute()
                     && minuteOfDay < rule.getEndMinute()) {

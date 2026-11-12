@@ -1,13 +1,16 @@
 package com.cowork.dataaccess.entity;
 
+import com.cowork.dataaccess.enums.DayType;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
+import jakarta.persistence.JoinColumn;
+import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
-
-import java.util.UUID;
 
 /**
  * Đơn giá một block giờ cho một loại không gian trong một khung giờ của ngày (cao điểm / thấp điểm).
@@ -18,10 +21,11 @@ import java.util.UUID;
 public class PriceRule {
 
     @Id
-    private UUID id;
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
 
-    @Enumerated(EnumType.STRING)
-    @Column(nullable = false, length = 20)
+    @ManyToOne(optional = false)
+    @JoinColumn(name = "resource_type_id", nullable = false)
     private ResourceType resourceType;
 
     @Enumerated(EnumType.STRING)
@@ -41,7 +45,6 @@ public class PriceRule {
     }
 
     public PriceRule(ResourceType resourceType, DayType dayType, int startMinute, int endMinute, long pricePerBlock, String label) {
-        this.id = UUID.randomUUID();
         this.resourceType = resourceType;
         this.dayType = dayType;
         this.startMinute = startMinute;
@@ -50,7 +53,7 @@ public class PriceRule {
         this.label = label;
     }
 
-    public UUID getId() {
+    public Long getId() {
         return id;
     }
 

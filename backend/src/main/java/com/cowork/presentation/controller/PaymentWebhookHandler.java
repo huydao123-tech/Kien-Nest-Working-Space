@@ -1,7 +1,7 @@
 package com.cowork.presentation.controller;
 
 import com.cowork.business.service.PaymentService;
-import com.cowork.dataaccess.entity.Money;
+import com.cowork.dataaccess.valueobject.Money;
 import com.cowork.dataaccess.entity.Payment;
 import com.cowork.dataaccess.integration.WebhookSignature;
 import com.fasterxml.jackson.core.JsonProcessingException;

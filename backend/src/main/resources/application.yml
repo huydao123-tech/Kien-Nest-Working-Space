@@ -13,25 +13,46 @@ spring:
       # Bảng do bạn tạo bằng cách chạy db/schema.sql trong pgAdmin. Ứng dụng KHÔNG tự tạo hay sửa bảng;
       # khi khởi động chỉ kiểm tra entity Java có khớp với bảng không, lệch thì báo lỗi và dừng.
       ddl-auto: validate
+    properties:
+      # Nạp danh sách con (khoản thu, lịch sử, add-on) của nhiều đơn trong một câu SELECT khi xem danh sách đơn
+      hibernate.default_batch_fetch_size: 50
 
 app:
   time-zone: Asia/Ho_Chi_Minh
   seed-demo-data: true
 
-# BR-02, BR-16, BR-17 trong SRS
+# BR-02, BR-16, BR-17 và thời lượng đặt tối thiểu (UC02) trong SRS
 booking:
   hold-duration: 10m
   check-in-early-window: 15m
   overstay-grace: 5m
+  min-duration: 1h
+  # Hủy đơn / đổi khung giờ: phải trước giờ bắt đầu ít nhất 2 giờ, được hoàn 100% (ticket booking.md)
+  change-notice: 2h
+  # BR-16: quá min(30 phút, 50% thời lượng đơn) kể từ giờ bắt đầu mà chưa check-in → NO_SHOW (ticket notification.md)
+  no-show-grace: 30m
+  no-show-grace-percent: 50
   jobs:
     enabled: true
     hold-expiry-delay-ms: 30000
     overstay-delay-ms: 60000
+    no-show-delay-ms: 60000
+    # FR-NOTI-03: quét cảnh báo sắp hết giờ 30 giây/lần để tin lệch không quá 1 phút (NFR-07)
+    end-warning-delay-ms: 30000
 
 # BR-03, BR-06 trong SRS
 pricing:
   block-minutes: 30
   overstay-multiplier: 1.0
+
+# UC01, UC23: đăng nhập và phân quyền. Production phải đặt JWT_SECRET (>= 32 ký tự).
+auth:
+  jwt-secret: ${JWT_SECRET:dev-only-jwt-secret-doi-truoc-khi-len-production}
+  jwt-issuer: cowork-booking
+  access-token-ttl: 8h
+  otp-ttl: 5m
+  otp-max-attempts: 5
+  otp-resend-cooldown: 60s
 
 payment:
   webhook-secret: ${PAYMENT_WEBHOOK_SECRET:dev-only-webhook-secret}

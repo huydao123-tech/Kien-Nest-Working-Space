@@ -1,9 +1,10 @@
 package com.cowork.presentation.controller;
 
 import com.cowork.business.service.ResourceService;
-import com.cowork.dataaccess.entity.Resource;
-import com.cowork.dataaccess.entity.ResourceStatus;
-import com.cowork.dataaccess.entity.ResourceType;
+import com.cowork.dataaccess.entity.SpaceResource;
+import com.cowork.dataaccess.enums.ResourceStatus;
+import com.cowork.dataaccess.enums.ResourceTypeCode;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -11,7 +12,6 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
-import java.util.UUID;
 
 @RestController
 @RequestMapping("/api/resources")
@@ -24,23 +24,26 @@ class ResourceController {
     }
 
     @GetMapping
+    @PreAuthorize(Roles.ALL_STAFF)
     List<ResourceResponse> list() {
         return resourceService.list().stream().map(ResourceResponse::from).toList();
     }
 
     @PostMapping("/{id}/maintenance")
-    ResourceResponse markMaintenance(@PathVariable UUID id) {
+    @PreAuthorize(Roles.MAINTENANCE)
+    ResourceResponse markMaintenance(@PathVariable Long id) {
         return ResourceResponse.from(resourceService.markMaintenance(id));
     }
 
     @PostMapping("/{id}/reactivate")
-    ResourceResponse reactivate(@PathVariable UUID id) {
+    @PreAuthorize(Roles.MAINTENANCE)
+    ResourceResponse reactivate(@PathVariable Long id) {
         return ResourceResponse.from(resourceService.reactivate(id));
     }
 
-    record ResourceResponse(UUID id, String code, String name, ResourceType type, int capacity, ResourceStatus status) {
+    record ResourceResponse(Long id, String code, String name, ResourceTypeCode type, int capacity, ResourceStatus status) {
 
-        static ResourceResponse from(Resource r) {
+        static ResourceResponse from(SpaceResource r) {
             return new ResourceResponse(r.getId(), r.getCode(), r.getName(), r.getType(), r.getCapacity(), r.getStatus());
         }
     }

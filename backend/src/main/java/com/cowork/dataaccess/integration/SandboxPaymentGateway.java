@@ -1,6 +1,6 @@
 package com.cowork.dataaccess.integration;
 
-import com.cowork.dataaccess.entity.Money;
+import com.cowork.dataaccess.valueobject.Money;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;

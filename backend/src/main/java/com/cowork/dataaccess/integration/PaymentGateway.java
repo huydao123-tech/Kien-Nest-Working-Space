@@ -1,6 +1,6 @@
 package com.cowork.dataaccess.integration;
 
-import com.cowork.dataaccess.entity.Money;
+import com.cowork.dataaccess.valueobject.Money;
 
 import java.time.LocalDateTime;
 
