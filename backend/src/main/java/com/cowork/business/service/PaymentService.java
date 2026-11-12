@@ -4,11 +4,11 @@ import com.cowork.business.exception.ConflictException;
 import com.cowork.business.exception.DomainException;
 import com.cowork.business.exception.NotFoundException;
 import com.cowork.dataaccess.entity.Booking;
-import com.cowork.dataaccess.entity.BookingStatus;
-import com.cowork.dataaccess.entity.Money;
+import com.cowork.dataaccess.enums.BookingStatus;
+import com.cowork.dataaccess.valueobject.Money;
 import com.cowork.dataaccess.entity.Payment;
-import com.cowork.dataaccess.entity.PaymentMethod;
-import com.cowork.dataaccess.entity.PaymentStatus;
+import com.cowork.dataaccess.enums.PaymentMethod;
+import com.cowork.dataaccess.enums.PaymentStatus;
 import com.cowork.dataaccess.integration.PaymentGateway;
 import com.cowork.dataaccess.integration.PaymentGateway.CheckoutSession;
 import com.cowork.dataaccess.repository.PaymentRepository;
@@ -41,33 +41,50 @@ public class PaymentService {
         this.clock = clock;
     }
 
-    /** UC04 bước 1–2. Gọi lại khi đã có giao dịch đang mở thì trả về giao dịch đó. */
-    public Payment initiate(UUID bookingId, PaymentMethod method) {
+    /**
+     * UC04 bước 1–2: thanh toán đơn đang giữ chỗ (HELD), hoặc phần chênh của yêu cầu đổi chỗ đang chờ (đơn CONFIRMED,
+     * booking.md Prompt 2). Gọi lại khi đã có giao dịch đang mở đúng số tiền thì trả về giao dịch đó; giao dịch đang mở
+     * khác số tiền (của yêu cầu đổi chỗ trước) chuyển UNCONFIRMED — tiền về sau đó sẽ được hoàn.
+     */
+    public Payment initiate(Long bookingId, PaymentMethod method) {
         Booking booking = bookingService.get(bookingId);
-        if (booking.getStatus() != BookingStatus.HELD) {
+        Money amount;
+        LocalDateTime expiresAt;
+        if (booking.getStatus() == BookingStatus.HELD) {
+            amount = booking.getOutstanding();
+            expiresAt = booking.getHoldExpiresAt();
+        } else if (booking.getStatus() == BookingStatus.CONFIRMED && booking.hasPendingChange()) {
+            amount = Money.vnd(booking.getPendingAmount());
+            expiresAt = booking.getPendingExpiresAt();
+        } else {
             throw new ConflictException("BOOKING_NOT_PAYABLE", "Đơn đang ở trạng thái " + booking.getStatus());
         }
         for (Payment existing : payments.findByBookingId(bookingId)) {
-            if (OPEN.contains(existing.getStatus())) {
+            if (!OPEN.contains(existing.getStatus())) {
+                continue;
+            }
+            if (existing.getAmount() == amount.amount()) {
                 return existing;
             }
+            existing.setStatus(PaymentStatus.UNCONFIRMED);
+            // Ghi ngay để chỉ mục "mỗi đơn một giao dịch đang mở" không chặn giao dịch mới.
+            payments.saveAndFlush(existing);
         }
-        Money amount = booking.getOutstanding();
         if (!amount.isPositive()) {
             throw new DomainException("NOTHING_TO_PAY", "Đơn không có khoản cần thanh toán");
         }
         Payment payment = new Payment();
-        payment.setId(UUID.randomUUID());
-        payment.setBookingId(bookingId);
+        payment.setBooking(booking);
         payment.setAmount(amount.amount());
         payment.setMethod(method);
         payment.setStatus(PaymentStatus.INITIATED);
         // Gửi kèm cho cổng để không tạo giao dịch trùng nếu hệ thống gọi lại (FR-PAY-02).
-        payment.setIdempotencyKey(bookingId + ":" + payment.getId());
+        // Id tự tăng chỉ có sau khi lưu, nên phần sau dấu ":" là một chuỗi ngẫu nhiên.
+        payment.setIdempotencyKey(bookingId + ":" + UUID.randomUUID());
         payment.setCreatedAt(now());
 
         CheckoutSession session = gateway.createCheckout(payment.getIdempotencyKey(), amount,
-                "Thanh toan don " + booking.getCode(), booking.getHoldExpiresAt());
+                "Thanh toan don " + booking.getCode(), expiresAt);
         payment.setGatewayTransactionId(session.gatewayTransactionId());
         payment.setCheckoutUrl(session.checkoutUrl());
         payment.setStatus(PaymentStatus.PENDING);
@@ -94,7 +111,7 @@ public class PaymentService {
             payment.setStatus(PaymentStatus.SUCCEEDED);
             payment.setCompletedAt(now());
             payments.save(payment);
-            bookingService.onPaymentSucceeded(payment.getBookingId(), Money.vnd(payment.getAmount()));
+            bookingService.onPaymentSucceeded(payment.getBooking().getId(), Money.vnd(payment.getAmount()));
         } else {
             if (payment.getStatus() == PaymentStatus.FAILED) {
                 return payment;
@@ -103,7 +120,7 @@ public class PaymentService {
             payment.setStatus(PaymentStatus.FAILED);
             payment.setCompletedAt(now());
             payments.save(payment);
-            bookingService.onPaymentFailed(payment.getBookingId());
+            bookingService.onPaymentFailed(payment.getBooking().getId());
         }
         return payment;
     }

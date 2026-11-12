@@ -1,15 +1,24 @@
 package com.cowork.dataaccess.entity;
 
+import com.cowork.dataaccess.enums.PaymentMethod;
+import com.cowork.dataaccess.enums.PaymentStatus;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
+import jakarta.persistence.FetchType;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
+import jakarta.persistence.JoinColumn;
+import jakarta.persistence.ManyToOne;
+import jakarta.persistence.OneToMany;
 import jakarta.persistence.Table;
 import jakarta.persistence.Version;
 
 import java.time.LocalDateTime;
-import java.util.UUID;
+import java.util.ArrayList;
+import java.util.List;
 
 /** Một giao dịch thanh toán qua cổng cho một đơn đặt chỗ. */
 @Entity
@@ -17,10 +26,12 @@ import java.util.UUID;
 public class Payment {
 
     @Id
-    private UUID id;
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
 
-    @Column(nullable = false)
-    private UUID bookingId;
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "booking_id", nullable = false)
+    private Booking booking;
 
     private long amount;
 
@@ -49,23 +60,26 @@ public class Payment {
     @Version
     private Long version;
 
+    @OneToMany(mappedBy = "payment")
+    private List<Refund> refunds = new ArrayList<>();
+
     public Payment() {
     }
 
-    public UUID getId() {
+    public Long getId() {
         return id;
     }
 
-    public void setId(UUID id) {
+    public void setId(Long id) {
         this.id = id;
     }
 
-    public UUID getBookingId() {
-        return bookingId;
+    public Booking getBooking() {
+        return booking;
     }
 
-    public void setBookingId(UUID bookingId) {
-        this.bookingId = bookingId;
+    public void setBooking(Booking booking) {
+        this.booking = booking;
     }
 
     public long getAmount() {
@@ -130,5 +144,9 @@ public class Payment {
 
     public void setCompletedAt(LocalDateTime completedAt) {
         this.completedAt = completedAt;
+    }
+
+    public List<Refund> getRefunds() {
+        return refunds;
     }
 }

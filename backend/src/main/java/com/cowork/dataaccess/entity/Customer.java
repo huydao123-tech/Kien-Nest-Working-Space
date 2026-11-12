@@ -1,14 +1,19 @@
 package com.cowork.dataaccess.entity;
 
+import com.cowork.dataaccess.enums.NotificationChannel;
+import com.cowork.dataaccess.valueobject.ContactInfo;
 import jakarta.persistence.Column;
 import jakarta.persistence.Embedded;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import jakarta.persistence.Version;
 
 import java.time.LocalDateTime;
-import java.util.UUID;
 
 /** Khách hàng, định danh bằng số điện thoại. */
 @Entity
@@ -16,7 +21,8 @@ import java.util.UUID;
 public class Customer {
 
     @Id
-    private UUID id;
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
 
     @Embedded
     private ContactInfo contact;
@@ -27,14 +33,36 @@ public class Customer {
     @Version
     private Long version;
 
+    @Column(name = "phone_verified_at")
+    private LocalDateTime phoneVerifiedAt;
+
+    @Column(name = "notify_before_minutes", nullable = false)
+    private int notifyBeforeMinutes = 15;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "preferred_channel", nullable = false, length = 10)
+    private NotificationChannel preferredChannel = NotificationChannel.SMS;
+
+    /** BCrypt của mật khẩu (UC01). Rỗng = khách vãng lai, chưa đăng ký tài khoản. */
+    @Column(name = "password_hash", length = 100)
+    private String passwordHash;
+
     public Customer() {
     }
 
-    public UUID getId() {
+    public String getPasswordHash() {
+        return passwordHash;
+    }
+
+    public void setPasswordHash(String passwordHash) {
+        this.passwordHash = passwordHash;
+    }
+
+    public Long getId() {
         return id;
     }
 
-    public void setId(UUID id) {
+    public void setId(Long id) {
         this.id = id;
     }
 
@@ -52,5 +80,29 @@ public class Customer {
 
     public void setCreatedAt(LocalDateTime createdAt) {
         this.createdAt = createdAt;
+    }
+
+    public LocalDateTime getPhoneVerifiedAt() {
+        return phoneVerifiedAt;
+    }
+
+    public void setPhoneVerifiedAt(LocalDateTime phoneVerifiedAt) {
+        this.phoneVerifiedAt = phoneVerifiedAt;
+    }
+
+    public int getNotifyBeforeMinutes() {
+        return notifyBeforeMinutes;
+    }
+
+    public void setNotifyBeforeMinutes(int notifyBeforeMinutes) {
+        this.notifyBeforeMinutes = notifyBeforeMinutes;
+    }
+
+    public NotificationChannel getPreferredChannel() {
+        return preferredChannel;
+    }
+
+    public void setPreferredChannel(NotificationChannel preferredChannel) {
+        this.preferredChannel = preferredChannel;
     }
 }

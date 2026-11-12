@@ -1,24 +1,7 @@
 - thứ tự code là 
-1. tạo các domain event cho context đó
-2. Viết aggregation, hàm xử lí logic trong nó luôn
-3. Nếu logic cần nhiều aggregation thì tạo riêng qua các domain service(cx trong domain)
-4. Viết service và sử dụng các hàm logic đã viết để tạo 1 usecase hoàn chỉnh
-5. Sau khi hàm thực thi thành công thì xử lí event sau nó
-Ví dụ:
-if (changed) {
-            payments.save(payment);
-            events.publishEventsOf(payment);
-        }
-gọi đến:
-    PaymentEventsListener.java
-    @TransactionalEventListener
-    @Transactional(propagation = Propagation.REQUIRES_NEW)
-    void on(PaymentSucceeded event) {
-        bookingService.onPaymentSucceeded(event.bookingId(), event.amount());
-    }
-qua đó cùng lúc thay đổi state của booking
-
-6. Tạo api trong controller
+1. tạo các entity tương ứng với db và các repository tương ứng để query database
+2. Viết các service của chúng. 1 số service gọi đến nhiều service, repository khác gọi là service lớn. 1 số service chỉ viết logic nhỏ
+3. Controller gọi đến các service lớn và tạo API
 
 
 đọc kĩ các diagram để hiểu cách các bound context tương tác với nhau
